@@ -2,7 +2,7 @@ from datasets import load_dataset
 from datasets.distributed import split_dataset_by_node
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, DataCollatorForLanguageModeling
-    
+
 
 def get_c4_pile(world_size, local_rank, per_device_train_batch_size, split="train"):
     """Loads C4/The Pile dataset for GPT-Neo training."""

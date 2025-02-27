@@ -1,25 +1,27 @@
 import argparse
+import logging.config
 import os
 
 import torch
 import torch.distributed as dist
 import wandb
-import logging.config
 from torch.distributed import init_process_group
 from transformers import get_cosine_schedule_with_warmup
 
 from diloco_training.datasets import DATASET_REGISTRY
 from diloco_training.models import MODEL_REGISTRY
-from diloco_training.utils.exalsius_logger import get_logger, LOG_CONFIG
+from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
 
 logging.config.dictConfig(LOG_CONFIG)
-logger = get_logger(__name__)
+logger = get_logger("diloco_trainer")
+
 
 def ddp_setup():
     logger.info(
-        "Local rank: %s, world size: %s", os.environ["LOCAL_RANK"], os.environ["WORLD_SIZE"]
+        "Local rank: %s, world size: %s",
+        os.environ["LOCAL_RANK"],
+        os.environ["WORLD_SIZE"],
     )
-    print(f"init process group")
     init_process_group(
         backend="nccl",
         rank=int(os.environ["LOCAL_RANK"]),
@@ -69,7 +71,6 @@ def train(
     loss_batch = 0
     params_offloaded = get_offloaded_param(outer_optimizer)
     gradient_accumulation_steps = batch_size // per_device_train_batch_size
-
 
     for step, batch in enumerate(train_dataloader):
         for key in batch.keys():
@@ -121,7 +122,9 @@ def main(args):
     model = initialize_model(model_class, local_rank)
     inner_optimizer, outer_optimizer = get_optimizers(model, lr=4e-4, outer_lr=0.7)
     scheduler = get_cosine_schedule_with_warmup(
-        inner_optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=args.total_steps
+        inner_optimizer,
+        num_warmup_steps=args.warmup_steps,
+        num_training_steps=args.total_steps,
     )
 
     train_dataset, train_dataloader = get_dataset(
