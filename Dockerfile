@@ -22,10 +22,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 ##### final image
 FROM base
 
-COPY --from=builder /app /app
+# Copy only what's needed from builder
+COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/diloco_training /app/diloco_training
 
 ENV PYTHONPATH="/app"
-
 ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 29500
