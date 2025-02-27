@@ -39,6 +39,7 @@ def get_offloaded_param(outer_optimizer: torch.optim.Optimizer):
 
 
 def initialize_model(model_class, device):
+    logger.info(f"Initializing model {model_class} on device {device}")
     model = model_class().to(device)
     for param in model.parameters():
         dist.broadcast(param.data, src=0)
@@ -109,7 +110,9 @@ def main(args):
     model_class = MODEL_REGISTRY.get(args.model)
     if model_class is None:
         raise ValueError(f"Model {args.model} not found in registry.")
+    logger.info(f"Model {args.model} found in registry.")
     # Get dataset from registry
+    logger.info(f"Getting dataset {args.dataset} from registry.")
     get_dataset = DATASET_REGISTRY.get(args.dataset)
     if get_dataset is None:
         raise ValueError(f"Dataset {args.dataset} not found in registry.")
@@ -117,7 +120,9 @@ def main(args):
     # Run the training pipeline
     local_rank = int(os.environ["LOCAL_RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
+    logger.info(f"Local rank: {local_rank}, World size: {world_size}")
     if local_rank == 0:
+        logger.info("Initializing wandb")
         wandb.init(project="diloco")
     model = initialize_model(model_class, local_rank)
     inner_optimizer, outer_optimizer = get_optimizers(model, lr=4e-4, outer_lr=0.7)
@@ -127,10 +132,12 @@ def main(args):
         num_training_steps=args.total_steps,
     )
 
+    logger.info("Getting training dataset")
     train_dataset, train_dataloader = get_dataset(
         world_size, local_rank, args.per_device_train_batch_size, split="train"
     )
 
+    logger.info("Starting training loop")
     train(
         model,
         train_dataloader,
