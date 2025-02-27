@@ -24,6 +24,8 @@ FROM base
 
 COPY --from=builder /app /app
 
+ENV PYTHONPATH="/app"
+
 ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 29500
