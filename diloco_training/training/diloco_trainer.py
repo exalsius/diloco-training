@@ -12,14 +12,15 @@ from diloco_training.datasets import DATASET_REGISTRY
 from diloco_training.models import MODEL_REGISTRY
 from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
 
-os.environ["WANDB_MODE"] = "dryrun"
 logging.config.dictConfig(LOG_CONFIG)
-logger = get_logger("diloco_trainer")
+logger = get_logger("diloco_training")
 
 
 def ddp_setup():
     logger.info(
-        "Local rank: %s, world size: %s", os.environ["LOCAL_RANK"], os.environ["WORLD_SIZE"]
+        "Local rank: %s, world size: %s",
+        os.environ["LOCAL_RANK"],
+        os.environ["WORLD_SIZE"],
     )
     init_process_group(
         backend="nccl",
@@ -122,7 +123,9 @@ def main(args):
     model = initialize_model(model_class, local_rank)
     inner_optimizer, outer_optimizer = get_optimizers(model, lr=4e-4, outer_lr=0.7)
     scheduler = get_cosine_schedule_with_warmup(
-        inner_optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=args.total_steps
+        inner_optimizer,
+        num_warmup_steps=args.warmup_steps,
+        num_training_steps=args.total_steps,
     )
     print("Model initialized")
     train_dataset, train_dataloader = get_dataset(
