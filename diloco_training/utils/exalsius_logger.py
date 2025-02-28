@@ -17,10 +17,14 @@ LOG_CONFIG = {
         },
     },
     "loggers": {
-        "exalsius": {"handlers": ["console"], "level": "DEBUG", "propagate": False},
+        "diloco_training": {
+            "handlers": ["console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
     },
 }
 
 
-def get_logger(logger_name: str = "exalsius") -> logging.Logger:
+def get_logger(logger_name: str = "diloco_training") -> logging.Logger:
     return logging.getLogger(logger_name)
