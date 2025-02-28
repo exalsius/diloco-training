@@ -12,15 +12,14 @@ from diloco_training.datasets import DATASET_REGISTRY
 from diloco_training.models import MODEL_REGISTRY
 from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
 
+os.environ["WANDB_MODE"] = "dryrun"
 logging.config.dictConfig(LOG_CONFIG)
 logger = get_logger("diloco_trainer")
 
 
 def ddp_setup():
     logger.info(
-        "Local rank: %s, world size: %s",
-        os.environ["LOCAL_RANK"],
-        os.environ["WORLD_SIZE"],
+        "Local rank: %s, world size: %s", os.environ["LOCAL_RANK"], os.environ["WORLD_SIZE"]
     )
     init_process_group(
         backend="nccl",
@@ -39,7 +38,6 @@ def get_offloaded_param(outer_optimizer: torch.optim.Optimizer):
 
 
 def initialize_model(model_class, device):
-    logger.info(f"Initializing model {model_class} on device {device}")
     model = model_class().to(device)
     for param in model.parameters():
         dist.broadcast(param.data, src=0)
@@ -72,11 +70,10 @@ def train(
     loss_batch = 0
     params_offloaded = get_offloaded_param(outer_optimizer)
     gradient_accumulation_steps = batch_size // per_device_train_batch_size
-
+    print(f"Gradient accumulation steps: {gradient_accumulation_steps}")
     for step, batch in enumerate(train_dataloader):
         for key in batch.keys():
             batch[key] = batch[key].to("cuda")
-
         outputs = model(**batch)
         loss = outputs.loss / gradient_accumulation_steps
         loss_batch += loss.detach()
@@ -86,8 +83,9 @@ def train(
             inner_optimizer.step()
             scheduler.step()
             inner_optimizer.zero_grad()
-
+            logger.info(f"Step local: {step}, Loss: {loss_batch.item()}")
             if (step + 1) // gradient_accumulation_steps % local_steps == 0:
+                print("Outer loop optimization started")
                 for param_offloaded, param in zip(params_offloaded, model.parameters()):
                     param_offloaded_on_device = param_offloaded.data.to(param.device)
                     param.grad = param_offloaded_on_device - param.data
@@ -96,10 +94,11 @@ def train(
                 outer_optimizer.step()
                 outer_optimizer.zero_grad()
                 params_offloaded = get_offloaded_param(outer_optimizer)
+                print("Outer loop optimization finished")
 
             if local_rank == 0:
                 wandb.log({"Loss": loss_batch.item(), "step": step})
-                logger.info(f"Step: {step}, Loss: {loss_batch.item()}")
+                print(f"Step: {step}, Loss: {loss_batch.item()}")
                 loss_batch = 0
 
 
@@ -110,9 +109,7 @@ def main(args):
     model_class = MODEL_REGISTRY.get(args.model)
     if model_class is None:
         raise ValueError(f"Model {args.model} not found in registry.")
-    logger.info(f"Model {args.model} found in registry.")
     # Get dataset from registry
-    logger.info(f"Getting dataset {args.dataset} from registry.")
     get_dataset = DATASET_REGISTRY.get(args.dataset)
     if get_dataset is None:
         raise ValueError(f"Dataset {args.dataset} not found in registry.")
@@ -120,24 +117,18 @@ def main(args):
     # Run the training pipeline
     local_rank = int(os.environ["LOCAL_RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
-    logger.info(f"Local rank: {local_rank}, World size: {world_size}")
     if local_rank == 0:
-        logger.info("Initializing wandb")
         wandb.init(project="diloco")
     model = initialize_model(model_class, local_rank)
     inner_optimizer, outer_optimizer = get_optimizers(model, lr=4e-4, outer_lr=0.7)
     scheduler = get_cosine_schedule_with_warmup(
-        inner_optimizer,
-        num_warmup_steps=args.warmup_steps,
-        num_training_steps=args.total_steps,
+        inner_optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=args.total_steps
     )
-
-    logger.info("Getting training dataset")
+    print("Model initialized")
     train_dataset, train_dataloader = get_dataset(
         world_size, local_rank, args.per_device_train_batch_size, split="train"
     )
-
-    logger.info("Starting training loop")
+    print("Dataset initialized")
     train(
         model,
         train_dataloader,
@@ -195,8 +186,6 @@ if __name__ == "__main__":
     )
     parser.add_argument("--per_device_train_batch_size", type=int, default=32)
     args = parser.parse_args()
-
-    print("Starting ddp setup")
     ddp_setup()
     main(args)
     dist.destroy_process_group()
