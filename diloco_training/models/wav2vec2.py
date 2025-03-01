@@ -33,17 +33,6 @@ class Wav2Vec2Model(nn.Module):
 
         return logits
 
-    # def forward(self, input_values, labels=None):
-    #     outputs = self.model(input_values)
-    #     logits = outputs.logits
-
-    #     if labels is not None:
-    #         input_lengths = torch.full(size=(input_values.shape[0],), fill_value=input_values.shape[1], dtype=torch.long)
-    #         target_lengths = torch.randint(low=labels.shape[1]-1, high=labels.shape[1], size=(labels.shape[0],), dtype=torch.long)
-    #         loss = self.criterion(logits.transpose(0, 1), labels, input_lengths, target_lengths)
-    #         return type("Output", (object,), {"loss": loss, "logits": logits})()
-    #     return logits
-
 def get_wav2vec2():
     """Return ResNet model with a loss calculation interface"""
     return Wav2Vec2Model()

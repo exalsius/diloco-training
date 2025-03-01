@@ -4,6 +4,7 @@ from torch.utils.data import DataLoader
 from transformers import Wav2Vec2Processor
 import torch
 from torch.nn.utils.rnn import pad_sequence
+from datasets.distributed import split_dataset_by_node
 
 
 def get_librispeech(world_size, local_rank, per_device_train_batch_size, split="train.clean.100"):
@@ -32,7 +33,9 @@ def get_librispeech(world_size, local_rank, per_device_train_batch_size, split="
         labels = pad_sequence(labels, batch_first=True, padding_value=-100)  # -100 is ignored in loss computation
         
         return {"input_values": input_values, "labels": labels}
-
+    dataset = split_dataset_by_node(
+        dataset=dataset, world_size=world_size, rank=local_rank
+    )
     # Dataloader
     dataloader = DataLoader(dataset, batch_size=per_device_train_batch_size, collate_fn=collate_fn, shuffle=True)
 
