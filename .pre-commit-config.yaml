@@ -32,3 +32,5 @@ repos:
       - id: ruff
         args:
           - "--ignore=E501,F403,F405"
+          - "--fix"
+          - "--unsafe-fixes"
