@@ -4,49 +4,39 @@ import pandas as pd
 import torchvision.transforms as transforms
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
+from pytorch_pretrained_biggan import BigGAN, one_hot_from_int, truncated_noise_sample, BigGANConfig
+import torch
+from datasets.distributed import split_dataset_by_node
+from torch.utils.data.distributed import DistributedSampler
 
-
-class TencentMLDataset(Dataset):
-    """Tencent ML Images dataset loader for BigGAN"""
-
-    def __init__(self, root_dir, label_csv, transform=None):
-        self.root_dir = root_dir
-        self.labels = pd.read_csv(label_csv)
-        self.transform = transform
+class BigGANDataset(Dataset):
+    def __init__(self, num_samples):
+        self.num_samples = num_samples
+        self._distributed = False
 
     def __len__(self):
-        return len(self.labels)
+        return self.num_samples
 
     def __getitem__(self, idx):
-        img_name = os.path.join(self.root_dir, self.labels.iloc[idx, 0])
-        image = Image.open(img_name).convert("RGB")
-
-        if self.transform:
-            image = self.transform(image)
-
-        label = self.labels.iloc[idx, 1:].values.astype(float)
-
-        return image, label
-
-
-def get_tencent_ml(root="./datasets/images/tencent_ml", split="train", batch_size=64):
+        noise = torch.tensor(truncated_noise_sample(truncation=0.4, batch_size=1)).squeeze(0)
+        class_vector = torch.tensor(one_hot_from_int([207], batch_size=1)).squeeze(0)  # Example class vector for "golden retriever"
+        real_images = torch.randn(1, 3, 256, 256)  # Placeholder for real images
+        return {"noise":noise, "class_vector": class_vector, "real_image": real_images}
+    
+def get_tencent_ml(world_size, local_rank, per_device_train_batch_size, split="train"):
     """Loads Tencent ML Images dataset for BigGAN training"""
 
-    csv_path = f"./datasets/metadata/{split}_labels.csv"
-    img_path = os.path.join(root, split)
-
-    transform = transforms.Compose(
-        [
-            transforms.Resize(128),
-            transforms.CenterCrop(128),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
-        ]
-    )
-
-    dataset = TencentMLDataset(
-        root_dir=img_path, label_csv=csv_path, transform=transform
-    )
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-
+    dataset = BigGANDataset(num_samples=1000)
+    sampler = DistributedSampler(dataset, num_replicas=world_size, rank=local_rank)
+    dataloader = DataLoader(dataset, batch_size=per_device_train_batch_size, sampler=sampler)
+    
     return dataset, dataloader
+
+
+if __name__=="__main__":
+    dataset, dataloader = get_tencent_ml(1, 0, 4)
+    print(f"Loaded {len(dataset)} samples.")
+    for i, batch in enumerate(dataloader):
+        print(f"Batch {i+1}: {batch["noise"].shape, batch["class_vector"].shape, batch["real_image"].shape}")
+        if i >= 2:  # Print only the first 3 batches
+            break
