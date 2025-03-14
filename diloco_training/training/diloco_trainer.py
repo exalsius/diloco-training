@@ -13,6 +13,7 @@ from diloco_training.datasets import DATASET_REGISTRY
 from diloco_training.models import MODEL_REGISTRY
 from diloco_training.utils.demo_optimizer import DeMo
 from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
+from diloco_training.utils.quantization import distributed_reduce_quantized
 
 warnings.filterwarnings("ignore")  # Suppresses all warnings
 
@@ -54,128 +55,27 @@ def get_optimizers(model, lr, outer_lr, optim_method="demo"):
         model.parameters(), weight_decay=0.1, lr=lr, betas=(0.9, 0.95)
     )
 
+    optimizer_config = {
+        "params": model.parameters(),
+        "lr": outer_lr,
+        "weight_decay": 0.1,
+    }
+
     if optim_method == "demo":
-        outer_optimizer = DeMo(
-            model.parameters(),
-            lr=outer_lr,
-            compression_decay=0.999,
-            compression_topk=32,
-            compression_chunk=64,
-            weight_decay=0.1,
+        optimizer_config.update(
+            {
+                "compression_decay": 0.999,
+                "compression_topk": 32,
+                "compression_chunk": 64,
+            }
         )
+        outer_optimizer = DeMo(**optimizer_config)
     elif optim_method in ["sgd", "sgd_quantized"]:
-        outer_optimizer = torch.optim.SGD(
-            model.parameters(),
-            lr=outer_lr,
-            weight_decay=0.1,
-        )
+        outer_optimizer = torch.optim.SGD(**optimizer_config)
     else:
         raise ValueError(f"Unknown optimization method: {optim_method}")
 
     return inner_optimizer, outer_optimizer
-
-
-def quantize_tensor(tensor):
-    """Quantize tensor to int8 using mean and 6-sigma range."""
-    # Compute mean and standard deviation
-    mean = tensor.mean()
-    std = tensor.std()
-
-    # Define quantization range [mean - 6*std, mean + 6*std]
-    qmin = mean - 6 * std
-    qmax = mean + 6 * std
-
-    # Scale factor for quantization
-    scale = 255.0 / (qmax - qmin)
-
-    # Quantize to int8
-    tensor_q = torch.clamp((tensor - qmin) * scale, 0, 255).round().to(torch.uint8)
-
-    # Return quantized tensor and quantization parameters
-    return tensor_q, qmin, qmax
-
-
-def dequantize_tensor(tensor_q, qmin, qmax):
-    """Dequantize int8 tensor back to fp32."""
-    scale = 255.0 / (qmax - qmin)
-    return tensor_q.float() / scale + qmin
-
-
-def distributed_reduce_quantized(tensor, op=dist.ReduceOp.AVG):
-    """Perform distributed reduction with int8 quantization for communication efficiency."""
-    # Create a copy of the original tensor for the final result
-    result_tensor = tensor.clone()
-    world_size = dist.get_world_size()
-
-    # For rank 0, we'll gather quantized tensors from all other ranks
-    if dist.get_rank() == 0:
-        # Quantize our own tensor
-        local_tensor_q, qmin, qmax = quantize_tensor(tensor)
-
-        # Create list to store gathered quantized tensors and quantization params
-        gathered_tensors_q = [
-            torch.zeros_like(local_tensor_q) for _ in range(world_size)
-        ]
-        gathered_qmins = [
-            torch.zeros(1, device=tensor.device) for _ in range(world_size)
-        ]
-        gathered_qmaxs = [
-            torch.zeros(1, device=tensor.device) for _ in range(world_size)
-        ]
-
-        # Place our tensor in the list
-        gathered_tensors_q[0] = local_tensor_q
-        gathered_qmins[0] = torch.tensor([qmin], device=tensor.device)
-        gathered_qmaxs[0] = torch.tensor([qmax], device=tensor.device)
-
-        # Gather quantized tensors and params from all other ranks
-        for i in range(1, world_size):
-            dist.recv(gathered_tensors_q[i], src=i, tag=0)
-            dist.recv(gathered_qmins[i], src=i, tag=1)
-            dist.recv(gathered_qmaxs[i], src=i, tag=2)
-
-        # Dequantize all tensors back to full precision
-        dequantized_tensors = []
-        for i in range(world_size):
-            dequantized = dequantize_tensor(
-                gathered_tensors_q[i],
-                gathered_qmins[i].item(),
-                gathered_qmaxs[i].item(),
-            )
-            dequantized_tensors.append(dequantized)
-
-        # Perform reduction in full precision
-        if op == dist.ReduceOp.SUM:
-            result = torch.stack(dequantized_tensors).sum(dim=0)
-        elif op == dist.ReduceOp.AVG:
-            result = torch.stack(dequantized_tensors).mean(dim=0)
-        else:
-            raise ValueError(f"Unsupported reduction operation: {op}")
-
-        # Update the result tensor
-        result_tensor.copy_(result)
-
-        # Broadcast the result to all other ranks
-        for i in range(1, world_size):
-            dist.send(result_tensor, dst=i, tag=3)
-    else:
-        # Other ranks: quantize and send to rank 0
-        local_tensor_q, qmin, qmax = quantize_tensor(tensor)
-        qmin_tensor = torch.tensor([qmin], device=tensor.device)
-        qmax_tensor = torch.tensor([qmax], device=tensor.device)
-
-        # Send quantized tensor and params to rank 0
-        dist.send(local_tensor_q, dst=0, tag=0)
-        dist.send(qmin_tensor, dst=0, tag=1)
-        dist.send(qmax_tensor, dst=0, tag=2)
-
-        # Receive the reduced result from rank 0
-        dist.recv(result_tensor, src=0, tag=3)
-
-    # Copy the result back to the input tensor
-    tensor.copy_(result_tensor)
-
-    return tensor
 
 
 def train(
@@ -186,6 +86,7 @@ def train(
     scheduler,
     local_rank,
     world_size,
+    total_steps,
     local_steps,
     batch_size,
     per_device_train_batch_size,
@@ -202,8 +103,12 @@ def train(
     bytes_sent = 0
     bytes_received = 0
     sync_count = 0
-
+    effective_total_steps = 0
     for step, batch in enumerate(train_dataloader):
+        effective_total_steps += 1
+        if total_steps < effective_total_steps * world_size:
+            print("Total steps reached")
+            break
         for key in batch.keys():
             batch[key] = batch[key].to("cuda")
         outputs = model(**batch)
@@ -217,7 +122,6 @@ def train(
             inner_optimizer.zero_grad()
             # logger.info(f"Rank {local_rank} Step local: {step}, Loss: {loss_batch.item()}")
             if (step + 1) // gradient_accumulation_steps % local_steps == 0:
-                print("Outer loop optimization started")
                 main_param = [
                     param
                     for group in inner_optimizer.param_groups
@@ -229,51 +133,40 @@ def train(
                 bytes_received = 0
                 sync_count += 1
 
-                if optim_method == "demo":
-                    # DeMo-specific logic
-                    for param_offloaded, param in zip(params_offloaded, main_param):
-                        param_offloaded_on_device = param_offloaded.data.to(
-                            param.device
-                        )
-                        param.grad = param_offloaded_on_device - param.data
-                        param.data = param_offloaded_on_device
+                # Apply parameter updates for all optimization methods
+                for param_offloaded, param in zip(params_offloaded, main_param):
+                    param_offloaded_on_device = param_offloaded.data.to(param.device)
+                    param.grad = param_offloaded_on_device - param.data
 
-                    # After DeMo step, get transmission stats
-                    outer_optimizer.step()
-                    bytes_sent = outer_optimizer.data_transmit
-                    bytes_received = outer_optimizer.data_receive
-                else:
-                    # For SGD methods, we need to synchronize gradients
-                    for param_offloaded, param in zip(params_offloaded, main_param):
-                        param_offloaded_on_device = param_offloaded.data.to(
-                            param.device
+                    # Method-specific gradient synchronization
+                    if optim_method != "demo":
+                        # Calculate data size for tracking
+                        is_quantized = optim_method == "sgd_quantized"
+                        param_size = param.grad.numel() * (
+                            1 if is_quantized else param.grad.element_size()
                         )
-                        param.grad = param_offloaded_on_device - param.data
-                        # Synchronize gradients across processes
-                        if optim_method == "sgd_quantized":
-                            # Track data size for quantized tensors
-                            param_size = (
-                                param.grad.numel() * 1
-                            )  # uint8 = 1 byte per element
-                            # Add small overhead for quantization parameters (qmin, qmax)
+
+                        # Add overhead for quantization parameters if needed
+                        if is_quantized:
                             param_size += 8  # 2 float32 values (4 bytes each)
-                            bytes_sent += param_size
-                            bytes_received += param_size * (world_size - 1)
-
                             param.grad = distributed_reduce_quantized(
                                 param.grad, op=dist.ReduceOp.AVG
                             )
-                            param.data = param_offloaded_on_device
-                        else:  # sgd without quantization
-                            # Track data size for full precision tensors
-                            param_size = param.grad.numel() * param.grad.element_size()
-                            bytes_sent += param_size
-                            bytes_received += param_size * (world_size - 1)
-
+                        else:
                             dist.all_reduce(param.grad, op=dist.ReduceOp.AVG)
-                            param.data = param_offloaded_on_device
 
-                    outer_optimizer.step()
+                        bytes_sent += param_size
+                        bytes_received += param_size * (world_size - 1)
+
+                    param.data = param_offloaded_on_device
+
+                # Perform optimization step
+                outer_optimizer.step()
+
+                # Get DeMo-specific transmission stats if applicable
+                if optim_method == "demo":
+                    bytes_sent = outer_optimizer.data_transmit
+                    bytes_received = outer_optimizer.data_receive
 
                 # Update total bytes
                 total_bytes_sent += bytes_sent
@@ -282,29 +175,28 @@ def train(
                 outer_optimizer.zero_grad()
 
                 params_offloaded = get_offloaded_param(outer_optimizer)
-                print("Outer loop optimization finished")
 
-            if local_rank == 0:
-                # Log communication stats
-                mb_sent = bytes_sent / (1024 * 1024)
-                mb_received = bytes_received / (1024 * 1024)
-                total_mb_sent = total_bytes_sent / (1024 * 1024)
-                total_mb_received = total_bytes_received / (1024 * 1024)
-                dict_to_log = {
-                    "Loss": loss_batch.item(),
-                    "step": step,
-                    "Perplexity": torch.exp(loss_batch).item(),
-                    "effective_step": step * world_size,
-                    "total_samples": step * batch_size * world_size,
-                    "optim_method": optim_method,
-                    "sync_count": sync_count,
-                    "bytes_sent_mb": mb_sent,
-                    "bytes_received_mb": mb_received,
-                    "total_bytes_sent_mb": total_mb_sent,
-                    "total_bytes_received_mb": total_mb_received,
-                }
-                print("Stats: ", dict_to_log)
-                wandb.log(dict_to_log)
+                if local_rank == 0:
+                    # Log communication stats
+                    mb_sent = bytes_sent / (1024 * 1024)
+                    mb_received = bytes_received / (1024 * 1024)
+                    total_mb_sent = total_bytes_sent / (1024 * 1024)
+                    total_mb_received = total_bytes_received / (1024 * 1024)
+                    dict_to_log = {
+                        "Loss": loss_batch.item(),
+                        "step": step,
+                        "Perplexity": torch.exp(loss_batch).item(),
+                        "effective_step": step * world_size,
+                        "total_samples": step * batch_size * world_size,
+                        "optim_method": optim_method,
+                        "sync_count": sync_count,
+                        "bytes_sent_mb": mb_sent,
+                        "bytes_received_mb": mb_received,
+                        "total_bytes_sent_mb": total_mb_sent,
+                        "total_bytes_received_mb": total_mb_received,
+                    }
+                    print("Stats: ", dict_to_log)
+                    wandb.log(dict_to_log)
             loss_batch = 0
 
 
@@ -348,6 +240,7 @@ def main(args):
         scheduler,
         local_rank,
         world_size,
+        args.total_steps,
         args.local_steps,
         args.batch_size,
         args.per_device_train_batch_size,
@@ -393,8 +286,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--total_steps",
         type=int,
-        default=10,
-        help="Total number of steps",
+        default=88000,
+        help="Total steps",
     )
     parser.add_argument("--per_device_train_batch_size", type=int, default=32)
     parser.add_argument(
