@@ -1,6 +1,7 @@
 import argparse
 import logging.config
 import os
+import warnings
 
 import torch
 import torch.distributed as dist
@@ -10,7 +11,10 @@ from transformers import get_cosine_schedule_with_warmup
 
 from diloco_training.datasets import DATASET_REGISTRY
 from diloco_training.models import MODEL_REGISTRY
+from diloco_training.utils.demo_optimizer import DeMo
 from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
+
+warnings.filterwarnings("ignore")  # Suppresses all warnings
 
 logging.config.dictConfig(LOG_CONFIG)
 logger = get_logger("diloco_training")
@@ -45,13 +49,29 @@ def initialize_model(model_class, device):
     return model
 
 
-def get_optimizers(model, lr, outer_lr):
+def get_optimizers(model, lr, outer_lr, optim_method="demo"):
     inner_optimizer = torch.optim.AdamW(
         model.parameters(), weight_decay=0.1, lr=lr, betas=(0.9, 0.95)
     )
-    outer_optimizer = torch.optim.SGD(
-        model.parameters(), lr=outer_lr, momentum=0.9, nesterov=True
-    )
+
+    if optim_method == "demo":
+        outer_optimizer = DeMo(
+            model.parameters(),
+            lr=outer_lr,
+            compression_decay=0.999,
+            compression_topk=32,
+            compression_chunk=64,
+            weight_decay=0.1,
+        )
+    elif optim_method in ["sgd", "sgd_quantized"]:
+        outer_optimizer = torch.optim.SGD(
+            model.parameters(),
+            lr=outer_lr,
+            weight_decay=0.1,
+        )
+    else:
+        raise ValueError(f"Unknown optimization method: {optim_method}")
+
     return inner_optimizer, outer_optimizer
 
 
@@ -169,12 +189,20 @@ def train(
     local_steps,
     batch_size,
     per_device_train_batch_size,
+    optim_method="demo",
 ):
     model.train()
     loss_batch = 0
     params_offloaded = get_offloaded_param(outer_optimizer)
     gradient_accumulation_steps = batch_size // per_device_train_batch_size
-    print(f"Gradient accumulation steps: {gradient_accumulation_steps}")
+
+    # Initialize data transmission tracking
+    total_bytes_sent = 0
+    total_bytes_received = 0
+    bytes_sent = 0
+    bytes_received = 0
+    sync_count = 0
+
     for step, batch in enumerate(train_dataloader):
         for key in batch.keys():
             batch[key] = batch[key].to("cuda")
@@ -187,25 +215,97 @@ def train(
             inner_optimizer.step()
             scheduler.step()
             inner_optimizer.zero_grad()
-            logger.info(f"Step local: {step}, Loss: {loss_batch.item()}")
+            # logger.info(f"Rank {local_rank} Step local: {step}, Loss: {loss_batch.item()}")
             if (step + 1) // gradient_accumulation_steps % local_steps == 0:
                 print("Outer loop optimization started")
-                for param_offloaded, param in zip(params_offloaded, model.parameters()):
-                    param_offloaded_on_device = param_offloaded.data.to(param.device)
-                    param.grad = param_offloaded_on_device - param.data
-                    param.grad = distributed_reduce_quantized(
-                        param.grad, op=dist.ReduceOp.AVG
-                    )
-                    param.data = param_offloaded_on_device
-                outer_optimizer.step()
+                main_param = [
+                    param
+                    for group in inner_optimizer.param_groups
+                    for param in group["params"]
+                ]
+
+                # Track data transmission for this sync
+                bytes_sent = 0
+                bytes_received = 0
+                sync_count += 1
+
+                if optim_method == "demo":
+                    # DeMo-specific logic
+                    for param_offloaded, param in zip(params_offloaded, main_param):
+                        param_offloaded_on_device = param_offloaded.data.to(
+                            param.device
+                        )
+                        param.grad = param_offloaded_on_device - param.data
+                        param.data = param_offloaded_on_device
+
+                    # After DeMo step, get transmission stats
+                    outer_optimizer.step()
+                    bytes_sent = outer_optimizer.data_transmit
+                    bytes_received = outer_optimizer.data_receive
+                else:
+                    # For SGD methods, we need to synchronize gradients
+                    for param_offloaded, param in zip(params_offloaded, main_param):
+                        param_offloaded_on_device = param_offloaded.data.to(
+                            param.device
+                        )
+                        param.grad = param_offloaded_on_device - param.data
+                        # Synchronize gradients across processes
+                        if optim_method == "sgd_quantized":
+                            # Track data size for quantized tensors
+                            param_size = (
+                                param.grad.numel() * 1
+                            )  # uint8 = 1 byte per element
+                            # Add small overhead for quantization parameters (qmin, qmax)
+                            param_size += 8  # 2 float32 values (4 bytes each)
+                            bytes_sent += param_size
+                            bytes_received += param_size * (world_size - 1)
+
+                            param.grad = distributed_reduce_quantized(
+                                param.grad, op=dist.ReduceOp.AVG
+                            )
+                            param.data = param_offloaded_on_device
+                        else:  # sgd without quantization
+                            # Track data size for full precision tensors
+                            param_size = param.grad.numel() * param.grad.element_size()
+                            bytes_sent += param_size
+                            bytes_received += param_size * (world_size - 1)
+
+                            dist.all_reduce(param.grad, op=dist.ReduceOp.AVG)
+                            param.data = param_offloaded_on_device
+
+                    outer_optimizer.step()
+
+                # Update total bytes
+                total_bytes_sent += bytes_sent
+                total_bytes_received += bytes_received
+
                 outer_optimizer.zero_grad()
+
                 params_offloaded = get_offloaded_param(outer_optimizer)
                 print("Outer loop optimization finished")
 
             if local_rank == 0:
-                wandb.log({"Loss": loss_batch.item(), "step": step})
-                print(f"Step: {step}, Loss: {loss_batch.item()}")
-                loss_batch = 0
+                # Log communication stats
+                mb_sent = bytes_sent / (1024 * 1024)
+                mb_received = bytes_received / (1024 * 1024)
+                total_mb_sent = total_bytes_sent / (1024 * 1024)
+                total_mb_received = total_bytes_received / (1024 * 1024)
+                dict_to_log = {
+                    "Loss": loss_batch.item(),
+                    "step": step,
+                    "Perplexity": torch.exp(loss_batch).item(),
+                    "effective_step": step * world_size,
+                    "total_samples": step * batch_size * world_size,
+                    "optim_method": optim_method,
+                    "sync_count": sync_count,
+                    "bytes_sent_mb": mb_sent,
+                    "bytes_received_mb": mb_received,
+                    "total_bytes_sent_mb": total_mb_sent,
+                    "total_bytes_received_mb": total_mb_received,
+                }
+                print("Stats: ", dict_to_log)
+                wandb.log(dict_to_log)
+            loss_batch = 0
 
 
 def main(args):
@@ -224,9 +324,12 @@ def main(args):
     local_rank = int(os.environ["LOCAL_RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
     if local_rank == 0:
+        os.environ["WANDB_MODE"] = "offline"
         wandb.init(project="diloco")
     model = initialize_model(model_class, local_rank)
-    inner_optimizer, outer_optimizer = get_optimizers(model, lr=4e-4, outer_lr=0.7)
+    inner_optimizer, outer_optimizer = get_optimizers(
+        model, lr=4e-4, outer_lr=4e-4, optim_method=args.optim_method
+    )
     scheduler = get_cosine_schedule_with_warmup(
         inner_optimizer,
         num_warmup_steps=args.warmup_steps,
@@ -248,6 +351,7 @@ def main(args):
         args.local_steps,
         args.batch_size,
         args.per_device_train_batch_size,
+        optim_method=args.optim_method,
     )
     wandb.finish()
 
@@ -293,6 +397,13 @@ if __name__ == "__main__":
         help="Total number of steps",
     )
     parser.add_argument("--per_device_train_batch_size", type=int, default=32)
+    parser.add_argument(
+        "--optim_method",
+        type=str,
+        default="sgd",
+        choices=["demo", "sgd", "sgd_quantized"],
+        help="Optimization method: demo (DeMo optimizer), sgd (standard SGD), sgd_quantized (SGD with quantization)",
+    )
     args = parser.parse_args()
     ddp_setup()
     main(args)
