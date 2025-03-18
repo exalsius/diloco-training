@@ -50,12 +50,7 @@ def train(
     bytes_sent = 0
     bytes_received = 0
     sync_count = 0
-    effective_total_steps = 0
     for step, batch in enumerate(train_dataloader):
-        effective_total_steps += 1
-        if total_steps < effective_total_steps * world_size:
-            print("Total steps reached")
-            break
         for key in batch.keys():
             batch[key] = batch[key].to("cuda")
         outputs = model(**batch)
@@ -139,7 +134,7 @@ def train(
                         "total_bytes_sent_mb": total_mb_sent,
                         "total_bytes_received_mb": total_mb_received,
                     }
-                    print("Stats: ", dict_to_log)
+                    logger.info("Stats: %s", dict_to_log)
                     wandb.log(dict_to_log)
             loss_batch = 0
 
@@ -175,11 +170,11 @@ def main(args):
         num_warmup_steps=args.warmup_steps,
         num_training_steps=args.total_steps,
     )
-    print("Model initialized")
+    logger.info("Model initialized")
     train_dataset, train_dataloader = get_dataset(
         world_size, local_rank, args.per_device_train_batch_size, split="train"
     )
-    print("Dataset initialized")
+    logger.info("Dataset initialized")
     train(
         model,
         train_dataloader,
@@ -193,7 +188,6 @@ def main(args):
         args.batch_size,
         args.per_device_train_batch_size,
         optim_method=args.optim_method,
-        outer_lr=outer_lr,
     )
     wandb.finish()
 
