@@ -68,7 +68,7 @@ def main():
 
     print(f"Loaded {len(dataset)} samples from the {split} split.")
     for i, batch in enumerate(dataloader):
-        print(f"Batch {i+1}: {batch['input_values'].shape, batch['labels'].shape}")
+        print(f"Batch {i + 1}: {batch['input_values'].shape, batch['labels'].shape}")
         if i >= 2:  # Print only the first 3 batches
             break
 
