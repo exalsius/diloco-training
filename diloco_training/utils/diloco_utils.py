@@ -3,6 +3,7 @@ import os
 
 import torch
 import torch.distributed as dist
+import wandb
 from torch.distributed import init_process_group
 
 from diloco_training.utils.demo_optimizer import DeMo
@@ -73,3 +74,38 @@ def get_optimizers(model, lr, outer_lr, optim_method="demo"):
         raise ValueError(f"Unknown optimization method: {optim_method}")
 
     return inner_optimizer, outer_optimizer
+
+
+def log_stats(
+    local_rank,
+    step,
+    loss_batch,
+    world_size,
+    batch_size,
+    optim_method,
+    sync_count,
+    bytes_sent,
+    bytes_received,
+    total_bytes_sent,
+    total_bytes_received,
+):
+    if local_rank == 0:
+        mb_sent = bytes_sent / (1024 * 1024)
+        mb_received = bytes_received / (1024 * 1024)
+        total_mb_sent = total_bytes_sent / (1024 * 1024)
+        total_mb_received = total_bytes_received / (1024 * 1024)
+        dict_to_log = {
+            "Loss": loss_batch.item(),
+            "step": step,
+            "Perplexity": torch.exp(loss_batch).item(),
+            "effective_step": step * world_size,
+            "total_samples": step * batch_size * world_size,
+            "optim_method": optim_method,
+            "sync_count": sync_count,
+            "bytes_sent_mb": mb_sent,
+            "bytes_received_mb": mb_received,
+            "total_bytes_sent_mb": total_mb_sent,
+            "total_bytes_received_mb": total_mb_received,
+        }
+        logger.info("Stats: %s", dict_to_log)
+        wandb.log(dict_to_log)

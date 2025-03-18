@@ -15,6 +15,7 @@ from diloco_training.utils.diloco_utils import (
     get_offloaded_param,
     get_optimizers,
     initialize_model,
+    log_stats,
 )
 from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
 from diloco_training.utils.quantization import distributed_reduce_quantized
@@ -23,6 +24,55 @@ warnings.filterwarnings("ignore")  # Suppresses all warnings
 
 logging.config.dictConfig(LOG_CONFIG)
 logger = get_logger("diloco_training")
+
+
+def prepare_batch(batch):
+    for key in batch.keys():
+        batch[key] = batch[key].to("cuda")
+    return batch
+
+
+def compute_loss(model, batch, gradient_accumulation_steps):
+    outputs = model(**batch)
+    loss = outputs.loss / gradient_accumulation_steps
+    return loss
+
+
+def update_inner_optimizer(inner_optimizer, scheduler, model):
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    inner_optimizer.step()
+    scheduler.step()
+    inner_optimizer.zero_grad()
+
+
+def sync_outer_optimizer_params(
+    params_offloaded, main_param, optim_method, world_size, outer_optimizer
+):
+    bytes_sent = 0
+    bytes_received = 0
+    for param_offloaded, param in zip(params_offloaded, main_param):
+        param_offloaded_on_device = param_offloaded.data.to(param.device)
+        param.grad = param_offloaded_on_device - param.data
+        if optim_method != "demo":
+            is_quantized = optim_method == "sgd_quantized"
+            param_size = param.grad.numel() * (
+                1 if is_quantized else param.grad.element_size()
+            )
+            if is_quantized:
+                param_size += 8
+                param.grad = distributed_reduce_quantized(
+                    param.grad, op=dist.ReduceOp.AVG
+                )
+            else:
+                dist.all_reduce(param.grad, op=dist.ReduceOp.AVG)
+            bytes_sent += param_size
+            bytes_received += param_size * (world_size - 1)
+            param.data = param_offloaded_on_device
+    outer_optimizer.step()
+    if optim_method == "demo":
+        bytes_sent = outer_optimizer.data_transmit
+        bytes_received = outer_optimizer.data_receive
+    return bytes_sent, bytes_received
 
 
 def train(
@@ -44,123 +94,74 @@ def train(
     params_offloaded = get_offloaded_param(outer_optimizer)
     gradient_accumulation_steps = batch_size // per_device_train_batch_size
 
-    # Initialize data transmission tracking
     total_bytes_sent = 0
     total_bytes_received = 0
-    bytes_sent = 0
-    bytes_received = 0
     sync_count = 0
+
     for step, batch in enumerate(train_dataloader):
-        for key in batch.keys():
-            batch[key] = batch[key].to("cuda")
-        outputs = model(**batch)
-        loss = outputs.loss / gradient_accumulation_steps
+        batch = prepare_batch(batch)
+        loss = compute_loss(model, batch, gradient_accumulation_steps)
         loss_batch += loss.detach()
         loss.backward()
+
         if (step + 1) % gradient_accumulation_steps == 0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            inner_optimizer.step()
-            scheduler.step()
-            inner_optimizer.zero_grad()
-            # logger.info(f"Rank {local_rank} Step local: {step}, Loss: {loss_batch.item()}")
+            update_inner_optimizer(inner_optimizer, scheduler, model)
+
             if (step + 1) // gradient_accumulation_steps % local_steps == 0:
                 main_param = [
                     param
                     for group in inner_optimizer.param_groups
                     for param in group["params"]
                 ]
-
-                # Track data transmission for this sync
-                bytes_sent = 0
-                bytes_received = 0
-                sync_count += 1
-
-                # Apply parameter updates for all optimization methods
-                for param_offloaded, param in zip(params_offloaded, main_param):
-                    param_offloaded_on_device = param_offloaded.data.to(param.device)
-                    param.grad = param_offloaded_on_device - param.data
-                    # Method-specific gradient synchronization
-                    if optim_method != "demo":
-                        # Calculate data size for tracking
-                        is_quantized = optim_method == "sgd_quantized"
-                        param_size = param.grad.numel() * (
-                            1 if is_quantized else param.grad.element_size()
-                        )
-
-                        # Add overhead for quantization parameters if needed
-                        if is_quantized:
-                            param_size += 8  # 2 float32 values (4 bytes each)
-                            param.grad = distributed_reduce_quantized(
-                                param.grad, op=dist.ReduceOp.AVG
-                            )
-                        else:
-                            dist.all_reduce(param.grad, op=dist.ReduceOp.AVG)
-
-                        bytes_sent += param_size
-                        bytes_received += param_size * (world_size - 1)
-                        param.data = param_offloaded_on_device
-
-                outer_optimizer.step()
-
-                # Get DeMo-specific transmission stats if applicable
-                if optim_method == "demo":
-                    bytes_sent = outer_optimizer.data_transmit
-                    bytes_received = outer_optimizer.data_receive
-
-                # Update total bytes
+                bytes_sent, bytes_received = sync_outer_optimizer_params(
+                    params_offloaded,
+                    main_param,
+                    optim_method,
+                    world_size,
+                    outer_optimizer,
+                )
                 total_bytes_sent += bytes_sent
                 total_bytes_received += bytes_received
-
                 outer_optimizer.zero_grad()
-
                 params_offloaded = get_offloaded_param(outer_optimizer)
-
-                if local_rank == 0:
-                    # Log communication stats
-                    mb_sent = bytes_sent / (1024 * 1024)
-                    mb_received = bytes_received / (1024 * 1024)
-                    total_mb_sent = total_bytes_sent / (1024 * 1024)
-                    total_mb_received = total_bytes_received / (1024 * 1024)
-                    dict_to_log = {
-                        "Loss": loss_batch.item(),
-                        "step": step,
-                        "Perplexity": torch.exp(loss_batch).item(),
-                        "effective_step": step * world_size,
-                        "total_samples": step * batch_size * world_size,
-                        "optim_method": optim_method,
-                        "sync_count": sync_count,
-                        "bytes_sent_mb": mb_sent,
-                        "bytes_received_mb": mb_received,
-                        "total_bytes_sent_mb": total_mb_sent,
-                        "total_bytes_received_mb": total_mb_received,
-                    }
-                    logger.info("Stats: %s", dict_to_log)
-                    wandb.log(dict_to_log)
+                log_stats(
+                    local_rank,
+                    step,
+                    loss_batch,
+                    world_size,
+                    batch_size,
+                    optim_method,
+                    sync_count,
+                    bytes_sent,
+                    bytes_received,
+                    total_bytes_sent,
+                    total_bytes_received,
+                )
+                sync_count += 1
             loss_batch = 0
 
 
 def main(args):
     # Parse command-line arguments
-    # Get model from registry
-
     model_class = MODEL_REGISTRY.get(args.model)
     if model_class is None:
         raise ValueError(f"Model {args.model} not found in registry.")
-    # Get dataset from registry
+
     get_dataset = DATASET_REGISTRY.get(args.dataset)
     if get_dataset is None:
         raise ValueError(f"Dataset {args.dataset} not found in registry.")
 
-    if args.optim_method == "demo":
-        outer_lr = 1e-3
-    else:
-        outer_lr = 0.7
-    # Run the training pipeline
+    outer_lr = 1e-3 if args.optim_method == "demo" else 0.7
+
+    # Setup distributed training
     local_rank = int(os.environ["LOCAL_RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
+
     if local_rank == 0:
         os.environ["WANDB_MODE"] = "offline"
         wandb.init(project="diloco")
+
+    # Initialize model and optimizers
     model = initialize_model(model_class, local_rank)
     inner_optimizer, outer_optimizer = get_optimizers(
         model, lr=4e-4, outer_lr=outer_lr, optim_method=args.optim_method
@@ -170,11 +171,17 @@ def main(args):
         num_warmup_steps=args.warmup_steps,
         num_training_steps=args.total_steps,
     )
-    logger.info("Model initialized")
+
+    logger.info("Model initialized on rank %s", local_rank)
+
+    # Load dataset
     train_dataset, train_dataloader = get_dataset(
         world_size, local_rank, args.per_device_train_batch_size, split="train"
     )
-    logger.info("Dataset initialized")
+
+    logger.info("Dataset initialized on rank %s", local_rank)
+
+    # Start training
     train(
         model,
         train_dataloader,
@@ -189,6 +196,7 @@ def main(args):
         args.per_device_train_batch_size,
         optim_method=args.optim_method,
     )
+
     wandb.finish()
 
 
