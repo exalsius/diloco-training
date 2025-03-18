@@ -8,7 +8,7 @@ import torch.distributed as dist
 import wandb
 from transformers import get_cosine_schedule_with_warmup
 
-from diloco_training.datasets import DATASET_REGISTRY
+from diloco_training.data import DATASET_REGISTRY
 from diloco_training.models import MODEL_REGISTRY
 from diloco_training.utils.diloco_utils import (
     ddp_setup,
