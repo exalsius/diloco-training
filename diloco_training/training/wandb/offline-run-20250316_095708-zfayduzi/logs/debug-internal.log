@@ -1,0 +1,14 @@
+{"time":"2025-03-16T09:57:09.098806263Z","level":"INFO","msg":"stream: starting","core version":"0.19.7","symlink path":"/workspace/diloco-training/diloco_training/training/wandb/offline-run-20250316_095708-zfayduzi/logs/debug-core.log"}
+{"time":"2025-03-16T09:57:09.202051949Z","level":"INFO","msg":"created new stream","id":"zfayduzi"}
+{"time":"2025-03-16T09:57:09.202087557Z","level":"INFO","msg":"stream: started","id":"zfayduzi"}
+{"time":"2025-03-16T09:57:09.202121592Z","level":"INFO","msg":"writer: Do: started","stream_id":"zfayduzi"}
+{"time":"2025-03-16T09:57:09.202168631Z","level":"INFO","msg":"handler: started","stream_id":"zfayduzi"}
+{"time":"2025-03-16T09:57:09.202209979Z","level":"INFO","msg":"sender: started","stream_id":"zfayduzi"}
+{"time":"2025-03-16T09:57:09.209163428Z","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-03-16T10:01:07.798856995Z","level":"INFO","msg":"stream: closing","id":"zfayduzi"}
+{"time":"2025-03-16T10:01:07.798931617Z","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-03-16T10:01:07.799553117Z","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-03-16T10:01:07.799602752Z","level":"INFO","msg":"handler: closed","stream_id":"zfayduzi"}
+{"time":"2025-03-16T10:01:07.799613271Z","level":"INFO","msg":"writer: Close: closed","stream_id":"zfayduzi"}
+{"time":"2025-03-16T10:01:07.799629783Z","level":"INFO","msg":"sender: closed","stream_id":"zfayduzi"}
+{"time":"2025-03-16T10:01:07.799867575Z","level":"INFO","msg":"stream: closed","id":"zfayduzi"}

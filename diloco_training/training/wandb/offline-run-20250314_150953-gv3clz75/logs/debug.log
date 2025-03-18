@@ -1,0 +1,29 @@
+2025-03-14 15:09:53,528 INFO    MainThread:750667 [wandb_setup.py:_flush():67] Current SDK version is 0.19.7
+2025-03-14 15:09:53,529 INFO    MainThread:750667 [wandb_setup.py:_flush():67] Configure stats pid to 750667
+2025-03-14 15:09:53,529 INFO    MainThread:750667 [wandb_setup.py:_flush():67] Loading settings from /root/.config/wandb/settings
+2025-03-14 15:09:53,529 INFO    MainThread:750667 [wandb_setup.py:_flush():67] Loading settings from /workspace/diloco-training/diloco_training/training/wandb/settings
+2025-03-14 15:09:53,529 INFO    MainThread:750667 [wandb_setup.py:_flush():67] Loading settings from environment variables
+2025-03-14 15:09:53,529 INFO    MainThread:750667 [wandb_init.py:setup_run_log_directory():647] Logging user logs to /workspace/diloco-training/diloco_training/training/wandb/offline-run-20250314_150953-gv3clz75/logs/debug.log
+2025-03-14 15:09:53,529 INFO    MainThread:750667 [wandb_init.py:setup_run_log_directory():648] Logging internal logs to /workspace/diloco-training/diloco_training/training/wandb/offline-run-20250314_150953-gv3clz75/logs/debug-internal.log
+2025-03-14 15:09:53,529 INFO    MainThread:750667 [wandb_init.py:init():761] calling init triggers
+2025-03-14 15:09:53,529 INFO    MainThread:750667 [wandb_init.py:init():766] wandb.init called with sweep_config: {}
+config: {'_wandb': {}}
+2025-03-14 15:09:53,529 INFO    MainThread:750667 [wandb_init.py:init():784] starting backend
+2025-03-14 15:09:53,742 INFO    MainThread:750667 [wandb_init.py:init():788] sending inform_init request
+2025-03-14 15:09:53,749 INFO    MainThread:750667 [backend.py:_multiprocessing_setup():97] multiprocessing start_methods=fork,spawn,forkserver, using: spawn
+2025-03-14 15:09:53,750 INFO    MainThread:750667 [wandb_init.py:init():803] backend started and connected
+2025-03-14 15:09:53,753 INFO    MainThread:750667 [wandb_init.py:init():896] updated telemetry
+2025-03-14 15:09:53,758 INFO    MainThread:750667 [wandb_init.py:init():920] communicating run to backend with 90.0 second timeout
+2025-03-14 15:09:53,862 INFO    MainThread:750667 [wandb_init.py:init():995] starting run threads in backend
+2025-03-14 15:09:53,970 INFO    MainThread:750667 [wandb_run.py:_console_start():2377] atexit reg
+2025-03-14 15:09:53,970 INFO    MainThread:750667 [wandb_run.py:_redirect():2227] redirect: wrap_raw
+2025-03-14 15:09:53,970 INFO    MainThread:750667 [wandb_run.py:_redirect():2292] Wrapping output streams.
+2025-03-14 15:09:53,970 INFO    MainThread:750667 [wandb_run.py:_redirect():2317] Redirects installed.
+2025-03-14 15:09:53,972 INFO    MainThread:750667 [wandb_init.py:init():1037] run started, returning control to user process
+2025-03-14 15:35:12,464 INFO    MainThread:750667 [wandb_run.py:_finish():2112] finishing run diloco/gv3clz75
+2025-03-14 15:35:12,465 INFO    MainThread:750667 [wandb_run.py:_atexit_cleanup():2342] got exitcode: 0
+2025-03-14 15:35:12,465 INFO    MainThread:750667 [wandb_run.py:_restore():2324] restore
+2025-03-14 15:35:12,465 INFO    MainThread:750667 [wandb_run.py:_restore():2330] restore done
+2025-03-14 15:35:13,473 INFO    MsgRouterThr:750667 [mailbox.py:close():115] Closing mailbox, abandoning 0 handles.
+2025-03-14 15:35:13,474 INFO    MainThread:750667 [wandb_run.py:_footer_history_summary_info():3958] rendering history
+2025-03-14 15:35:13,474 INFO    MainThread:750667 [wandb_run.py:_footer_history_summary_info():3990] rendering summary

@@ -1,0 +1,15 @@
+{"time":"2025-03-16T09:24:52.231357792Z","level":"INFO","msg":"stream: starting","core version":"0.19.7","symlink path":"/workspace/diloco-training/diloco_training/training/wandb/offline-run-20250316_092452-o5zg8iy8/logs/debug-core.log"}
+{"time":"2025-03-16T09:24:52.334119452Z","level":"INFO","msg":"created new stream","id":"o5zg8iy8"}
+{"time":"2025-03-16T09:24:52.334153948Z","level":"INFO","msg":"stream: started","id":"o5zg8iy8"}
+{"time":"2025-03-16T09:24:52.334182212Z","level":"INFO","msg":"writer: Do: started","stream_id":"o5zg8iy8"}
+{"time":"2025-03-16T09:24:52.334215164Z","level":"INFO","msg":"sender: started","stream_id":"o5zg8iy8"}
+{"time":"2025-03-16T09:24:52.334274528Z","level":"INFO","msg":"handler: started","stream_id":"o5zg8iy8"}
+{"time":"2025-03-16T09:24:52.339722367Z","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-03-16T09:50:13.701685833Z","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-03-16T09:50:13.702466606Z","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-03-16T09:50:13.703713605Z","level":"INFO","msg":"handler: operation stats","stats":{}}
+{"time":"2025-03-16T09:50:14.711129543Z","level":"INFO","msg":"stream: closing","id":"o5zg8iy8"}
+{"time":"2025-03-16T09:50:14.711178356Z","level":"INFO","msg":"handler: closed","stream_id":"o5zg8iy8"}
+{"time":"2025-03-16T09:50:14.711196932Z","level":"INFO","msg":"writer: Close: closed","stream_id":"o5zg8iy8"}
+{"time":"2025-03-16T09:50:14.711226148Z","level":"INFO","msg":"sender: closed","stream_id":"o5zg8iy8"}
+{"time":"2025-03-16T09:50:14.711352327Z","level":"INFO","msg":"stream: closed","id":"o5zg8iy8"}

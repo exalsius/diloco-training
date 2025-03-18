@@ -1,0 +1,14 @@
+{"time":"2025-03-18T06:32:33.417377149Z","level":"INFO","msg":"stream: starting","core version":"0.19.7","symlink path":"/workspace/diloco-training/diloco_training/training/wandb/offline-run-20250318_063233-wfvzrktq/logs/debug-core.log"}
+{"time":"2025-03-18T06:32:33.520435211Z","level":"INFO","msg":"created new stream","id":"wfvzrktq"}
+{"time":"2025-03-18T06:32:33.520474655Z","level":"INFO","msg":"stream: started","id":"wfvzrktq"}
+{"time":"2025-03-18T06:32:33.520510673Z","level":"INFO","msg":"writer: Do: started","stream_id":"wfvzrktq"}
+{"time":"2025-03-18T06:32:33.520555308Z","level":"INFO","msg":"handler: started","stream_id":"wfvzrktq"}
+{"time":"2025-03-18T06:32:33.520571319Z","level":"INFO","msg":"sender: started","stream_id":"wfvzrktq"}
+{"time":"2025-03-18T06:32:33.527374614Z","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-03-18T06:33:27.206336946Z","level":"INFO","msg":"stream: closing","id":"wfvzrktq"}
+{"time":"2025-03-18T06:33:27.206384145Z","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-03-18T06:33:27.207132427Z","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-03-18T06:33:27.207198723Z","level":"INFO","msg":"handler: closed","stream_id":"wfvzrktq"}
+{"time":"2025-03-18T06:33:27.207233518Z","level":"INFO","msg":"writer: Close: closed","stream_id":"wfvzrktq"}
+{"time":"2025-03-18T06:33:27.207261592Z","level":"INFO","msg":"sender: closed","stream_id":"wfvzrktq"}
+{"time":"2025-03-18T06:33:27.20735033Z","level":"INFO","msg":"stream: closed","id":"wfvzrktq"}

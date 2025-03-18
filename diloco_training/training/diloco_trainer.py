@@ -137,7 +137,6 @@ def train(
                 for param_offloaded, param in zip(params_offloaded, main_param):
                     param_offloaded_on_device = param_offloaded.data.to(param.device)
                     param.grad = param_offloaded_on_device - param.data
-
                     # Method-specific gradient synchronization
                     if optim_method != "demo":
                         # Calculate data size for tracking
@@ -158,9 +157,7 @@ def train(
                         bytes_sent += param_size
                         bytes_received += param_size * (world_size - 1)
 
-                    param.data = param_offloaded_on_device
-
-                # Perform optimization step
+                        param.data = param_offloaded_on_device
                 outer_optimizer.step()
 
                 # Get DeMo-specific transmission stats if applicable
