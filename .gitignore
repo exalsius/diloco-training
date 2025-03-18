@@ -4,6 +4,7 @@ __pycache__/
 build/
 dist/
 wheels/
+diloco_training/training/wandb
 *.egg-info
 
 # Virtual environments
