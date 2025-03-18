@@ -13,12 +13,30 @@ from transformers import GPTNeoConfig, GPTNeoForCausalLM
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL_NAME = "EleutherAI/gpt-neo-1.3B"
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: Dict[str, Any] = {
     "hidden_size": 128,
     "intermediate_size": 512,
     "num_hidden_layers": 6,
-    "num_attention_heads": 4,
+    "num_attention_heads": 4,  # TODO @sasho: I thik it should be num_heads
 }
+TINY_GPT_NEO_CONFIG: Dict[str, Any] = {
+    "vocab_size": 10,
+    "hidden_size": 8,
+    "max_position_embeddings": 64,
+    "num_layers": 2,
+    "num_heads": 1,
+    "attention_types": [[["global", "local"], 1]],
+}
+
+
+def get_tiny_gpt_neo() -> GPTNeoForCausalLM:
+    """Returns a tiny GPT-Neo model suitable for testing purposes.
+
+    This is a convenience function that creates a minimal GPT-Neo model
+    with a small configuration, making it useful for testing and development.
+    """
+    config = GPTNeoConfig(**TINY_GPT_NEO_CONFIG)
+    return GPTNeoForCausalLM(config)
 
 
 def get_gpt_neo(
@@ -82,3 +100,6 @@ if __name__ == "__main__":
         }
     )
     print(custom_model)
+
+    tiny_model = get_tiny_gpt_neo()
+    print(tiny_model)

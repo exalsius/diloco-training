@@ -5,9 +5,9 @@ import warnings
 
 import torch
 import torch.distributed as dist
-import wandb
 from transformers import get_cosine_schedule_with_warmup
 
+import wandb
 from diloco_training.data import DATASET_REGISTRY
 from diloco_training.models import MODEL_REGISTRY
 from diloco_training.utils.diloco_utils import (
@@ -15,7 +15,6 @@ from diloco_training.utils.diloco_utils import (
     get_offloaded_param,
     get_optimizers,
     initialize_model,
-    load_checkpoint,
     log_stats,
     save_checkpoint,
 )
@@ -95,6 +94,7 @@ def train(
     checkpoint_interval=1000,
     model_name="model",
     dataset_name="dataset",
+    device="cuda",
 ):
     model.train()
     loss_batch = 0
@@ -105,21 +105,13 @@ def train(
     total_bytes_received = 0
     sync_count = 0
 
-    start_step = load_checkpoint(
-        model,
-        inner_optimizer,
-        outer_optimizer,
-        scheduler,
-        checkpoint_path,
-        local_rank,
-        global_rank,
-        model_name,
-        dataset_name,
-    )
-
-    for step, batch in enumerate(train_dataloader, start=start_step):
+    for step, batch in enumerate(train_dataloader):
         batch = prepare_batch(batch)
         loss = compute_loss(model, batch, gradient_accumulation_steps)
+        for key in batch.keys():
+            batch[key] = batch[key].to(device)
+        outputs = model(**batch)
+        loss = outputs.loss / gradient_accumulation_steps
         loss_batch += loss.detach()
         loss.backward()
 
