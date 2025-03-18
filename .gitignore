@@ -9,3 +9,6 @@ diloco_training/training/wandb
 
 # Virtual environments
 .venv
+
+/testdata
+/.vscode

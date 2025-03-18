@@ -4,20 +4,39 @@ Provides utilities for tokenization, batching, and distributed training setup.
 """
 
 import logging
-from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple, TypeVar
 
 from datasets import Dataset, load_dataset
+from datasets import Dataset as HFDataset
 from datasets.distributed import split_dataset_by_node
+from datasets.utils.info_utils import VerificationMode
 from torch.utils.data import DataLoader
+from torch.utils.data import Dataset as TorchDataset
 from transformers import (
     AutoTokenizer,
     DataCollatorForLanguageModeling,
     PreTrainedTokenizer,
+    PreTrainedTokenizerFast,
 )
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+T_co = TypeVar("T_co", covariant=True)
+
+
+class C4PileDataset(TorchDataset[T_co]):
+    """Wrapper class for HuggingFace Dataset to make it compatible with PyTorch DataLoader."""
+
+    def __init__(self, hf_dataset: HFDataset):
+        self.dataset = hf_dataset
+
+    def __getitem__(self, index: int) -> Any:
+        return self.dataset[index]
+
+    def __len__(self) -> int:
+        return len(self.dataset)
 
 
 @dataclass
@@ -30,12 +49,16 @@ class DatasetConfig:
     max_length: int = 1024
     split: str = "train"
     pad_token: str = "</s>"
-    columns_to_remove: Tuple[str, ...] = ("text", "timestamp", "url")
+    columns_to_remove: List[str] = field(
+        default_factory=lambda: ["text", "timestamp", "url"]
+    )
     use_fast_tokenizer: bool = True
     ignore_verifications: bool = True
 
 
-def create_tokenizer(config: DatasetConfig) -> PreTrainedTokenizer:
+def create_tokenizer(
+    config: DatasetConfig,
+) -> PreTrainedTokenizer | PreTrainedTokenizerFast:
     """
     Create and configure a tokenizer based on the provided configuration.
 
@@ -57,7 +80,7 @@ def create_tokenizer(config: DatasetConfig) -> PreTrainedTokenizer:
 
 
 def load_and_process_dataset(
-    tokenizer: PreTrainedTokenizer, config: DatasetConfig
+    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast, config: DatasetConfig
 ) -> Dataset:
     """
     Load and tokenize the dataset.
@@ -73,13 +96,15 @@ def load_and_process_dataset(
         dataset = load_dataset(
             config.dataset_name,
             config.dataset_config,
-            ignore_verifications=config.ignore_verifications,
+            verification_mode=VerificationMode.NO_CHECKS,
+            split=config.split,
+            trust_remote_code=True,
         )
     except Exception as e:
         logger.error(f"Failed to load dataset: {e}")
         raise
 
-    def tokenize_fn(batch: Dict[str, Any]) -> Dict[str, Any]:
+    def tokenize_fn(batch: Dict[str, Any]) -> Any:
         """Tokenize a batch of examples."""
         return tokenizer(
             batch["text"],
@@ -92,8 +117,12 @@ def load_and_process_dataset(
     tokenized_datasets = dataset.map(
         tokenize_fn, batched=True, remove_columns=config.columns_to_remove
     )
-
-    return tokenized_datasets[config.split]
+    if isinstance(tokenized_datasets, Dataset):
+        return tokenized_datasets
+    else:
+        raise ValueError(
+            f"Expected Dataset, got {type(tokenized_datasets)}. Please check the dataset format."
+        )
 
 
 def get_c4_pile(
@@ -102,7 +131,7 @@ def get_c4_pile(
     per_device_train_batch_size: int,
     split: str = "train",
     config: Optional[DatasetConfig] = None,
-) -> Tuple[Dataset, DataLoader]:
+) -> Tuple[HFDataset, DataLoader]:
     """
     Loads C4/The Pile dataset for language model training with distributed support.
 
@@ -135,9 +164,9 @@ def get_c4_pile(
         tokenized_dataset, world_size=world_size, rank=local_rank
     )
 
-    # Create dataloader
+    # Create dataloader with wrapped dataset
     dataloader = DataLoader(
-        distributed_dataset,
+        C4PileDataset(distributed_dataset),
         collate_fn=data_collator,
         batch_size=per_device_train_batch_size,
     )
