@@ -6,12 +6,16 @@ import warnings
 import torch
 import torch.distributed as dist
 import wandb
-from torch.distributed import init_process_group
 from transformers import get_cosine_schedule_with_warmup
 
 from diloco_training.datasets import DATASET_REGISTRY
 from diloco_training.models import MODEL_REGISTRY
-from diloco_training.utils.demo_optimizer import DeMo
+from diloco_training.utils.diloco_utils import (
+    ddp_setup,
+    get_offloaded_param,
+    get_optimizers,
+    initialize_model,
+)
 from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
 from diloco_training.utils.quantization import distributed_reduce_quantized
 
@@ -19,63 +23,6 @@ warnings.filterwarnings("ignore")  # Suppresses all warnings
 
 logging.config.dictConfig(LOG_CONFIG)
 logger = get_logger("diloco_training")
-
-
-def ddp_setup():
-    logger.info(
-        "Local rank: %s, world size: %s",
-        os.environ["LOCAL_RANK"],
-        os.environ["WORLD_SIZE"],
-    )
-    init_process_group(
-        backend="nccl",
-        rank=int(os.environ["LOCAL_RANK"]),
-        world_size=int(os.environ["WORLD_SIZE"]),
-    )
-    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
-
-
-def get_offloaded_param(outer_optimizer: torch.optim.Optimizer):
-    return [
-        param.data.detach().clone().to("cpu")
-        for group in outer_optimizer.param_groups
-        for param in group["params"]
-    ]
-
-
-def initialize_model(model_class, device):
-    model = model_class().to(device)
-    for param in model.parameters():
-        dist.broadcast(param.data, src=0)
-    return model
-
-
-def get_optimizers(model, lr, outer_lr, optim_method="demo"):
-    inner_optimizer = torch.optim.AdamW(
-        model.parameters(), weight_decay=0.1, lr=lr, betas=(0.9, 0.95)
-    )
-
-    optimizer_config = {
-        "params": model.parameters(),
-        "lr": outer_lr,
-        "weight_decay": 0.1,
-    }
-
-    if optim_method == "demo":
-        optimizer_config.update(
-            {
-                "compression_decay": 0.999,
-                "compression_topk": 32,
-                "compression_chunk": 64,
-            }
-        )
-        outer_optimizer = DeMo(**optimizer_config)
-    elif optim_method in ["sgd", "sgd_quantized"]:
-        outer_optimizer = torch.optim.SGD(**optimizer_config)
-    else:
-        raise ValueError(f"Unknown optimization method: {optim_method}")
-
-    return inner_optimizer, outer_optimizer
 
 
 def train(
@@ -156,8 +103,8 @@ def train(
 
                         bytes_sent += param_size
                         bytes_received += param_size * (world_size - 1)
-
                         param.data = param_offloaded_on_device
+
                 outer_optimizer.step()
 
                 # Get DeMo-specific transmission stats if applicable
@@ -209,6 +156,10 @@ def main(args):
     if get_dataset is None:
         raise ValueError(f"Dataset {args.dataset} not found in registry.")
 
+    if args.optim_method == "demo":
+        outer_lr = 1e-3
+    else:
+        outer_lr = 0.7
     # Run the training pipeline
     local_rank = int(os.environ["LOCAL_RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
@@ -217,7 +168,7 @@ def main(args):
         wandb.init(project="diloco")
     model = initialize_model(model_class, local_rank)
     inner_optimizer, outer_optimizer = get_optimizers(
-        model, lr=4e-4, outer_lr=4e-4, optim_method=args.optim_method
+        model, lr=4e-4, outer_lr=outer_lr, optim_method=args.optim_method
     )
     scheduler = get_cosine_schedule_with_warmup(
         inner_optimizer,
@@ -242,6 +193,7 @@ def main(args):
         args.batch_size,
         args.per_device_train_batch_size,
         optim_method=args.optim_method,
+        outer_lr=outer_lr,
     )
     wandb.finish()
 
