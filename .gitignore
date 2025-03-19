@@ -12,3 +12,4 @@ diloco_training/training/wandb
 
 /testdata
 /.vscode
+/wandb

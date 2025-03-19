@@ -1,11 +1,11 @@
 import logging
+import logging.config
 import os
 
 import torch
 import torch.distributed as dist
-import wandb
-from torch.distributed import init_process_group
 
+import wandb
 from diloco_training.utils.demo_optimizer import DeMo
 from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
 
@@ -13,33 +13,59 @@ logging.config.dictConfig(LOG_CONFIG)
 logger = get_logger("diloco_training")
 
 
-def ddp_setup():
+def ddp_setup(
+    master_addr="localhost",
+    master_port="12355",
+    world_size=1,
+    local_rank=0,
+    device="cuda",
+):
     logger.info(
-        "Local rank: %s, world size: %s",
-        os.environ["LOCAL_RANK"],
-        os.environ["WORLD_SIZE"],
+        "Training on %s with local rank: %s, world size: %s",
+        device,
+        local_rank,
+        world_size,
     )
-    init_process_group(
-        backend="nccl",
-        rank=int(os.environ["LOCAL_RANK"]),
-        world_size=int(os.environ["WORLD_SIZE"]),
+    backend = "nccl" if device == "cuda" else "gloo"
+    dist.init_process_group(
+        backend=backend,
+        init_method=f"tcp://{master_addr}:{master_port}",
+        world_size=world_size,
+        rank=local_rank,
     )
-    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+    if device == "cuda":
+        torch.cuda.set_device(local_rank)
+
+    if local_rank == 0:
+        os.environ["WANDB_MODE"] = "offline"
+        wandb.init(project="diloco")
 
 
-def get_offloaded_param(outer_optimizer: torch.optim.Optimizer):
-    return [
-        param.data.detach().clone().to("cpu")
-        for group in outer_optimizer.param_groups
-        for param in group["params"]
-    ]
+def get_offloaded_param(outer_optimizer: torch.optim.Optimizer, device="cuda"):
+    """
+    Get the offloaded parameters from the outer optimizer.
+    """
+
+    if device == "cuda":
+        return [
+            param.data.detach().clone().to("cpu")
+            for group in outer_optimizer.param_groups
+            for param in group["params"]
+        ]
+    else:
+        return [
+            param.data.detach().clone()
+            for group in outer_optimizer.param_groups
+            for param in group["params"]
+        ]
 
 
 def initialize_model(model_class, device):
-    model = model_class().to(device)
+    config, model = model_class()
+    model = model.to(device)
     for param in model.parameters():
         dist.broadcast(param.data, src=0)
-    return model
+    return config, model
 
 
 def get_optimizers(model, lr, outer_lr, optim_method="demo"):
