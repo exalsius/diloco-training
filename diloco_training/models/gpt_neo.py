@@ -6,7 +6,7 @@ for causal language modeling tasks.
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from transformers import GPTNeoConfig, GPTNeoForCausalLM
 
@@ -20,28 +20,38 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "num_attention_heads": 4,  # TODO @sasho: I thik it should be num_heads
 }
 TINY_GPT_NEO_CONFIG: Dict[str, Any] = {
-    "vocab_size": 10,
+    "vocab_size": 100,
     "hidden_size": 8,
-    "max_position_embeddings": 64,
+    "max_position_embeddings": 512,
     "num_layers": 2,
     "num_heads": 1,
     "attention_types": [[["global", "local"], 1]],
 }
 
 
-def get_tiny_gpt_neo() -> GPTNeoForCausalLM:
+def get_tiny_gpt_neo() -> Tuple[GPTNeoConfig, GPTNeoForCausalLM]:
     """Returns a tiny GPT-Neo model suitable for testing purposes.
 
     This is a convenience function that creates a minimal GPT-Neo model
     with a small configuration, making it useful for testing and development.
     """
     config = GPTNeoConfig(**TINY_GPT_NEO_CONFIG)
-    return GPTNeoForCausalLM(config)
+    return config, GPTNeoForCausalLM(config)
+
+
+def get_cpu_gpt_neo() -> Tuple[GPTNeoConfig, GPTNeoForCausalLM]:
+    """Returns a tiny GPT-Neo model suitable for testing purposes.
+
+    This is a convenience function that creates a minimal GPT-Neo model
+    with a small configuration, making it useful for testing and development.
+    """
+    config = GPTNeoConfig(**DEFAULT_CONFIG)
+    return config, GPTNeoForCausalLM(config)
 
 
 def get_gpt_neo(
     model_name: Optional[str] = None, config_overrides: Optional[Dict[str, Any]] = None
-) -> GPTNeoForCausalLM:
+) -> Tuple[Optional[GPTNeoConfig], GPTNeoForCausalLM]:
     """
     Create and return a GPT-Neo model for causal language modeling.
 
@@ -65,7 +75,7 @@ def get_gpt_neo(
     if model_name and not config_overrides:
         try:
             logger.info(f"Loading pretrained model: {model_name}")
-            return GPTNeoForCausalLM.from_pretrained(model_name)
+            return None, GPTNeoForCausalLM.from_pretrained(model_name)
         except Exception as e:
             logger.error(f"Failed to load pretrained model: {e}")
             raise
@@ -78,7 +88,7 @@ def get_gpt_neo(
     logger.info(f"Creating GPT-Neo with custom configuration: {config_params}")
     config = GPTNeoConfig(**config_params)
     model = GPTNeoForCausalLM(config)
-    return model
+    return config, model
 
 
 if __name__ == "__main__":
@@ -89,17 +99,20 @@ if __name__ == "__main__":
     )
 
     # Example usage with default configuration
-    model = get_gpt_neo()
+    config, model = get_gpt_neo()
+    print(config)
     print(model)
 
     # Example with configuration overrides
-    custom_model = get_gpt_neo(
+    custom_config, custom_model = get_gpt_neo(
         config_overrides={
             "hidden_size": 256,
             "num_hidden_layers": 4,
         }
     )
+    print(custom_config)
     print(custom_model)
 
-    tiny_model = get_tiny_gpt_neo()
+    tiny_config, tiny_model = get_tiny_gpt_neo()
+    print(tiny_config)
     print(tiny_model)
