@@ -296,7 +296,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--checkpoint_interval",
         type=int,
-        default=100,
+        default=1000,
         help="Interval steps to save checkpoints",
     )
     args = parser.parse_args()
