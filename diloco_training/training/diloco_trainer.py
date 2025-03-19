@@ -15,7 +15,9 @@ from diloco_training.utils.diloco_utils import (
     get_offloaded_param,
     get_optimizers,
     initialize_model,
+    load_checkpoint,
     log_stats,
+    save_checkpoint,
 )
 from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
 from diloco_training.utils.quantization import distributed_reduce_quantized
@@ -82,12 +84,17 @@ def train(
     outer_optimizer,
     scheduler,
     local_rank,
+    global_rank,
     world_size,
     total_steps,
     local_steps,
     batch_size,
     per_device_train_batch_size,
     optim_method="demo",
+    checkpoint_path="checkpoint.pth",
+    checkpoint_interval=1000,
+    model_name="model",
+    dataset_name="dataset",
 ):
     model.train()
     loss_batch = 0
@@ -98,7 +105,19 @@ def train(
     total_bytes_received = 0
     sync_count = 0
 
-    for step, batch in enumerate(train_dataloader):
+    start_step = load_checkpoint(
+        model,
+        inner_optimizer,
+        outer_optimizer,
+        scheduler,
+        checkpoint_path,
+        local_rank,
+        global_rank,
+        model_name,
+        dataset_name,
+    )
+
+    for step, batch in enumerate(train_dataloader, start=start_step):
         batch = prepare_batch(batch)
         loss = compute_loss(model, batch, gradient_accumulation_steps)
         loss_batch += loss.detach()
@@ -140,6 +159,20 @@ def train(
                 sync_count += 1
             loss_batch = 0
 
+        if (step + 1) % checkpoint_interval == 0:
+            save_checkpoint(
+                model,
+                inner_optimizer,
+                outer_optimizer,
+                scheduler,
+                step,
+                checkpoint_path,
+                local_rank,
+                global_rank,
+                model_name,
+                dataset_name,
+            )
+
 
 def main(args):
     # Parse command-line arguments
@@ -155,6 +188,7 @@ def main(args):
 
     # Setup distributed training
     local_rank = int(os.environ["LOCAL_RANK"])
+    global_rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
 
     if local_rank == 0:
@@ -189,12 +223,17 @@ def main(args):
         outer_optimizer,
         scheduler,
         local_rank,
+        global_rank,
         world_size,
         args.total_steps,
         args.local_steps,
         args.batch_size,
         args.per_device_train_batch_size,
         optim_method=args.optim_method,
+        checkpoint_path=args.checkpoint_path,
+        checkpoint_interval=args.checkpoint_interval,
+        model_name=args.model,
+        dataset_name=args.dataset,
     )
 
     wandb.finish()
@@ -247,6 +286,18 @@ if __name__ == "__main__":
         default="sgd",
         choices=["demo", "sgd", "sgd_quantized"],
         help="Optimization method: demo (DeMo optimizer), sgd (standard SGD), sgd_quantized (SGD with quantization)",
+    )
+    parser.add_argument(
+        "--checkpoint_path",
+        type=str,
+        default="checkpoint.pth",
+        help="Path to save/load checkpoints",
+    )
+    parser.add_argument(
+        "--checkpoint_interval",
+        type=int,
+        default=100,
+        help="Interval steps to save checkpoints",
     )
     args = parser.parse_args()
     ddp_setup()

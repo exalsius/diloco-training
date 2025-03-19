@@ -109,3 +109,59 @@ def log_stats(
         }
         logger.info("Stats: %s", dict_to_log)
         wandb.log(dict_to_log)
+
+
+def save_checkpoint(
+    model,
+    inner_optimizer,
+    outer_optimizer,
+    scheduler,
+    step,
+    checkpoint_path,
+    local_rank,
+    global_rank,
+    model_name,
+    dataset_name,
+):
+    checkpoint = {
+        "model_state_dict": model.state_dict(),
+        "inner_optimizer_state_dict": inner_optimizer.state_dict(),
+        "outer_optimizer_state_dict": outer_optimizer.state_dict(),
+        "scheduler_state_dict": scheduler.state_dict(),
+        "step": step,
+    }
+    checkpoint_file = f"{checkpoint_path}_{model_name}_{dataset_name}_node_{global_rank}_rank_{local_rank}.pth"
+    torch.save(checkpoint, checkpoint_file)
+    logger.info(
+        f"Checkpoint saved at step {step} for global rank {global_rank} and local rank {local_rank}"
+    )
+
+
+def load_checkpoint(
+    model,
+    inner_optimizer,
+    outer_optimizer,
+    scheduler,
+    checkpoint_path,
+    local_rank,
+    global_rank,
+    model_name,
+    dataset_name,
+):
+    checkpoint_file = f"{checkpoint_path}_{model_name}_{dataset_name}_node_{global_rank}_rank_{local_rank}.pth"
+    if os.path.isfile(checkpoint_file):
+        checkpoint = torch.load(checkpoint_file)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        inner_optimizer.load_state_dict(checkpoint["inner_optimizer_state_dict"])
+        outer_optimizer.load_state_dict(checkpoint["outer_optimizer_state_dict"])
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        step = checkpoint["step"]
+        logger.info(
+            f"Checkpoint loaded from step {step} for global rank {global_rank} and local rank {local_rank}"
+        )
+        return step
+    else:
+        logger.info(
+            f"No checkpoint found for global rank {global_rank} and local rank {local_rank}, starting from scratch"
+        )
+        return 0
