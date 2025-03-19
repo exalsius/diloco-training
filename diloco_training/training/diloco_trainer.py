@@ -90,10 +90,13 @@ def train(
     batch_size,
     per_device_train_batch_size,
     optim_method="demo",
+<<<<<<< HEAD
     checkpoint_path="checkpoint.pth",
     checkpoint_interval=1000,
     model_name="model",
     dataset_name="dataset",
+=======
+>>>>>>> fbcd535 (Exclude wandb directory)
     device="cuda",
 ):
     model.train()
