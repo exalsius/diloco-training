@@ -31,9 +31,12 @@ jobs:
       with:
         python-version-file: ".python-version"
 
-    - name: Install the project
-      run: uv sync --all-extras --dev
+    #- name: Install the project
+    #  run: uv sync --all-extras --dev
 
+    - name: Install dependendiesn
+      run: uv venv && uv pip install -e .
+    
     - name: Lint code with ruff
       run: uv run ruff check .
 
