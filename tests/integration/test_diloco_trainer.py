@@ -42,6 +42,7 @@ def test_train(setup_training_env):
     batch_size = 4
     # Training parameters
     local_rank = 0
+    global_rank = 0
     world_size = 1
     local_steps = 2
     total_steps = 4
@@ -63,6 +64,7 @@ def test_train(setup_training_env):
         outer_optimizer=outer_optimizer,
         scheduler=scheduler,
         local_rank=local_rank,
+        global_rank=global_rank,
         world_size=world_size,
         local_steps=local_steps,
         batch_size=batch_size,
