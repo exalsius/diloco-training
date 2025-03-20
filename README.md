@@ -47,5 +47,5 @@ The Makefile includes several targets to streamline common development and deplo
 - **`build`**: Builds the Exalsius Docker image using the provided Dockerfile.
 
   ```bash
-  make container
+  make build
   ```
