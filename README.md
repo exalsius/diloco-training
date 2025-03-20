@@ -44,19 +44,8 @@ The Makefile includes several targets to streamline common development and deplo
   make test
   ```
 
-- **`container`**: Builds the Exalsius Docker image using the provided Dockerfile.
+- **`build`**: Builds the Exalsius Docker image using the provided Dockerfile.
 
   ```bash
   make container
-  ```
-
-- **`run`**: Builds and starts an Exalsius container using Docker Compose.
-
-  ```bash
-  make run
-  ```
-
-- **`run-3-nodes`**: Starts three Exalsius nodes as an example scenario using a specific Docker Compose file.
-  ```bash
-  make run-3-nodes
   ```
