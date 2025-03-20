@@ -64,9 +64,9 @@ def test_basic_training_call():
     }
 
     returncode, stdout, stderr = run_trainer(args)
-    assert returncode == 0, (
-        f"Training failed with error:\nstdout: {stdout}\nstderr: {stderr}"
-    )
+    assert (
+        returncode == 0
+    ), f"Training failed with error:\nstdout: {stdout}\nstderr: {stderr}"
 
 
 @pytest.mark.integration
@@ -103,6 +103,6 @@ def test_all_optimizers():
         args["optim_method"] = optim_method
 
         returncode, stdout, stderr = run_trainer(args)
-        assert returncode == 0, (
-            f"Training failed for optimizer {optim_method} with error:\nstdout: {stdout}\nstderr: {stderr}"
-        )
+        assert (
+            returncode == 0
+        ), f"Training failed for optimizer {optim_method} with error:\nstdout: {stdout}\nstderr: {stderr}"
