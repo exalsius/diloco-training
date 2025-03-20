@@ -34,8 +34,8 @@ jobs:
     #- name: Install the project
     #  run: uv sync --all-extras --dev
 
-    - name: Install dependendiesn
-      run: uv venv && uv pip install -e .
+    - name: Install dependencies
+      run: uv venv && uv pip install -e .[dev,test]
     
     - name: Lint code with ruff
       run: uv run ruff check .
