@@ -14,14 +14,14 @@ format:
 	echo "*"
 	black .
 	isort --profile black .
-@PHONY: format
+.PHONY: format
 
 lint:
 	echo "*"
 	echo "* Running linter..."
 	echo "*"
 	ruff check ./ --ignore=E501,F403,F405
-@PHONY: lint
+.PHONY: lint
 
 test: format lint
 	echo "*"
@@ -35,4 +35,5 @@ build:
 	echo "* Building exalsius docker image"
 	echo "*"
 	docker build -t $(IMAGE_NAME) -f ./Dockerfile .
-@PHONY: build
+.PHONY: build
+
