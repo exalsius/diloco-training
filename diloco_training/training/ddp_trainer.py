@@ -101,6 +101,8 @@ def train(
                     total_bytes_sent,
                     total_bytes_received,
                     val_stats,
+                    None,
+                    per_device_train_batch_size,
                 )
                 save_checkpoint(
                     model,
