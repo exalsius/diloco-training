@@ -5,13 +5,14 @@ from argparse import ArgumentTypeError
 
 import torch
 import torch.distributed as dist
+import wandb
 from transformers import get_cosine_schedule_with_warmup
 
-import wandb
 from diloco_training.data import DATASET_REGISTRY
 from diloco_training.models import MODEL_REGISTRY
 from diloco_training.utils.diloco_utils import (
     ddp_setup,
+    evaluate_model,
     get_offloaded_param,
     get_optimizers,
     initialize_model,
@@ -90,6 +91,7 @@ def sync_outer_optimizer_params(
 def train(
     model,
     train_dataloader,
+    val_dataloader,
     inner_optimizer,
     outer_optimizer,
     scheduler,
@@ -116,8 +118,10 @@ def train(
     total_bytes_received = 0
     sync_count = 0
 
-    print(batch_size, per_device_train_batch_size, gradient_accumulation_steps)
-
+    # log the bellow parameters but with names
+    logger.info(f"Batch size: {batch_size}")
+    logger.info(f"Per device train batch size: {per_device_train_batch_size}")
+    logger.info(f"Gradient accumulation steps: {gradient_accumulation_steps}")
     for step, batch in enumerate(train_dataloader):
         batch = prepare_batch(batch, device=device)
         loss = compute_loss(model, batch, gradient_accumulation_steps)
@@ -129,8 +133,10 @@ def train(
         loss.backward()
 
         if (step + 1) % gradient_accumulation_steps == 0:
+            logger.info(
+                f"Local rank {local_rank} - Step {(step + 1)* world_size / gradient_accumulation_steps} - Loss: {loss_batch.item()}"
+            )
             update_inner_optimizer(inner_optimizer, scheduler, model)
-
             if (step + 1) // gradient_accumulation_steps % local_steps == 0:
                 main_param = [
                     param
@@ -149,23 +155,26 @@ def train(
                 total_bytes_received += bytes_received
                 outer_optimizer.zero_grad()
                 params_offloaded = get_offloaded_param(outer_optimizer, device=device)
-                log_stats(
-                    local_rank,
-                    step,
-                    loss_batch,
-                    world_size,
-                    batch_size,
-                    optim_method,
-                    sync_count,
-                    bytes_sent,
-                    bytes_received,
-                    total_bytes_sent,
-                    total_bytes_received,
-                )
                 sync_count += 1
+            if ((step + 1) / gradient_accumulation_steps) % checkpoint_interval != 0:
+                loss_batch = 0
+        if ((step + 1) / gradient_accumulation_steps) % checkpoint_interval == 0:
+            val_stats = evaluate_model(val_dataloader, model, local_rank, global_rank)
+            # logger.info(f"Local rank {local_rank} - Validation stats: {val_stats}")
+            dist.barrier()
+            log_stats(
+                local_rank,
+                (step + 1) // gradient_accumulation_steps,
+                loss_batch,
+                world_size,
+                batch_size,
+                optim_method,
+                sync_count,
+                total_bytes_sent,
+                total_bytes_received,
+                val_stats,
+            )
             loss_batch = 0
-
-        if (step + 1) % checkpoint_interval == 0:
             save_checkpoint(
                 model,
                 inner_optimizer,
@@ -177,10 +186,13 @@ def train(
                 global_rank,
                 model_name,
                 dataset_name,
+                optim_method,
             )
         # finish training
         # TODO: final outer optimizer sync needed
-        if total_steps != -1 and total_steps == step + 1:
+        if total_steps != -1 and total_steps < (
+            (step + 1) // gradient_accumulation_steps
+        ):
             break
 
 
@@ -232,7 +244,7 @@ def main(args):
             num_samples=-1,
         )
     else:
-        _, train_dataloader = get_dataset(
+        train_dataloader, val_dataloader = get_dataset(
             world_size, local_rank, args.per_device_train_batch_size, split="train"
         )
 
@@ -242,6 +254,7 @@ def main(args):
     train(
         model=model,
         train_dataloader=train_dataloader,
+        val_dataloader=val_dataloader,
         inner_optimizer=inner_optimizer,
         outer_optimizer=outer_optimizer,
         scheduler=scheduler,
@@ -339,7 +352,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--checkpoint_interval",
         type=int,
-        default=1000,
+        default=512,
         help="Interval steps to save checkpoints",
     )
     parser.add_argument(

@@ -14,10 +14,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL_NAME = "EleutherAI/gpt-neo-1.3B"
 DEFAULT_CONFIG: Dict[str, Any] = {
-    "hidden_size": 128,
-    "intermediate_size": 512,
-    "num_hidden_layers": 6,
-    "num_attention_heads": 4,  # TODO @sasho: I thik it should be num_heads
+    "hidden_size": 512,
+    "num_hidden_layers": 3,
+    "num_heads": 16,
 }
 TINY_GPT_NEO_CONFIG: Dict[str, Any] = {
     "vocab_size": 100,
@@ -102,6 +101,7 @@ if __name__ == "__main__":
     config, model = get_gpt_neo()
     print(config)
     print(model)
+    print(sum(p.numel() for p in model.parameters()))
 
     # Example with configuration overrides
     custom_config, custom_model = get_gpt_neo(

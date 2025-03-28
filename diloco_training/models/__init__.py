@@ -1,6 +1,7 @@
 from .big_gan import get_biggan
 from .gcn import get_gcn
 from .gpt_neo import get_gpt_neo, get_tiny_gpt_neo
+from .gpt_neo_x import get_gpt_neo_x
 from .resnet import get_resnet
 from .wav2vec2 import get_wav2vec2
 
@@ -11,6 +12,7 @@ MODEL_REGISTRY = {
     "resnet101": lambda: get_resnet("resnet101"),
     "wav2vec2": get_wav2vec2,
     "gpt-neo": get_gpt_neo,
+    "gpt-neo-x": get_gpt_neo_x,
     "gpt-neo-tiny": get_tiny_gpt_neo,
     "gcn": get_gcn,
     "biggan": get_biggan,

@@ -31,8 +31,14 @@ class DatasetConfig:
 
 class StreamingC4Dataset(IterableDataset):
     def __init__(self, dataset_name, rank, world_size, split="train"):
-        self.dataset = load_dataset(dataset_name, "en", split=split, streaming=True)
+        if split == "validation":
+            self.dataset = load_dataset(
+                dataset_name, "en", split=split, streaming=True
+            ).shuffle(buffer_size=10_000)
+        else:
+            self.dataset = load_dataset(dataset_name, "en", split=split, streaming=True)
         self.rank = rank
+        self.split = split
         self.world_size = world_size
         self.config = DatasetConfig()
         self.tokenizer = create_tokenizer(self.config)
@@ -88,25 +94,39 @@ def get_c4_pile(
     if config is None:
         config = DatasetConfig()
     # Load the dataset (each process gets its own portion)
-    train_dataset = StreamingC4Dataset("c4", local_rank, world_size, split)
+    dataset = StreamingC4Dataset("c4", local_rank, world_size, split)
 
     # Define Dataloader
     tokenizer = create_tokenizer(config)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
     train_loader = DataLoader(
-        train_dataset,
+        dataset,
         batch_size=per_device_train_batch_size,
         collate_fn=data_collator,
     )
-    return train_dataset, train_loader
+
+    dataset = StreamingC4Dataset("c4", 0, 1, split)
+
+    # Define Dataloader
+    tokenizer = create_tokenizer(config)
+    data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+
+    val_loader = DataLoader(
+        dataset,
+        batch_size=per_device_train_batch_size,
+        collate_fn=data_collator,
+    )
+    return train_loader, val_loader
 
 
 if __name__ == "__main__":
 
     rank, world_size = 0, 2
-    train_dataset, train_loader = get_c4_pile(rank, world_size)
+    train_loader, val_loader = get_c4_pile(rank, world_size, 32)
 
-    for batch in train_loader:
-        print(batch)  # Replace with your training logic
-        break
+    count = 0
+    for batch in val_loader:
+        count += 1
+        if count % 10000 == 0:
+            print(count)
