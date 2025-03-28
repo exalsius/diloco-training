@@ -148,6 +148,8 @@ def log_stats(
     total_bytes_sent,
     total_bytes_received,
     val_stats,
+    local_steps,
+    per_device_train_batch_size,
 ):
     if local_rank == 0:
         total_mb_sent = total_bytes_sent / (1024 * 1024)
@@ -167,6 +169,9 @@ def log_stats(
             "total_bytes_sent_mb": total_mb_sent,
             "total_bytes_received_mb": total_mb_received,
             "val_stats": val_stats,
+            "local_steps": local_steps,
+            "batch_size": batch_size,
+            "per_device_train_batch_size": per_device_train_batch_size,
         }
         logger.info("Stats: %s", dict_to_log)
         wandb.log(dict_to_log)
