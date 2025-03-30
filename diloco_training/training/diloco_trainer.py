@@ -271,6 +271,7 @@ def main(args):
             vocab_size=model_config.vocab_size,
             num_samples=-1,
         )
+        val_dataloader = train_dataloader
     else:
         train_dataloader, val_dataloader = get_dataset(
             world_size, local_rank, args.per_device_train_batch_size, split="train"
