@@ -42,7 +42,7 @@ def ddp_setup(
 
     if local_rank == 0:
         wandb.login(key="6800d2a81420c3adf2b8f658e79f63bd4003b3e1")
-        wandb.init(project="diloco_training", id="5abkxjf5", resume="allow")
+        wandb.init(project="diloco_training")
 
 
 def get_offloaded_param(outer_optimizer: torch.optim.Optimizer, device="cuda"):
