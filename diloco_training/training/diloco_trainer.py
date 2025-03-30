@@ -5,9 +5,9 @@ from argparse import ArgumentTypeError
 
 import torch
 import torch.distributed as dist
-import wandb
 from transformers import get_cosine_schedule_with_warmup
 
+import wandb
 from diloco_training.data import DATASET_REGISTRY
 from diloco_training.models import MODEL_REGISTRY
 from diloco_training.utils.diloco_utils import (
@@ -16,6 +16,7 @@ from diloco_training.utils.diloco_utils import (
     get_offloaded_param,
     get_optimizers,
     initialize_model,
+    load_checkpoint,
     log_stats,
     save_checkpoint,
 )
@@ -108,6 +109,7 @@ def train(
     model_name="model",
     dataset_name="dataset",
     device="cuda",
+    start_step=0,
 ):
     model.train()
     loss_batch = 0
@@ -123,6 +125,11 @@ def train(
     logger.info(f"Per device train batch size: {per_device_train_batch_size}")
     logger.info(f"Gradient accumulation steps: {gradient_accumulation_steps}")
     for step, batch in enumerate(train_dataloader):
+        if start_step != 0:
+            if step < start_step:
+                continue
+            else:
+                logger.info(f"Starting training from step {start_step}...")
         batch = prepare_batch(batch, device=device)
         loss = compute_loss(model, batch, gradient_accumulation_steps)
         for key in batch.keys():
@@ -236,6 +243,25 @@ def main(args):
         num_training_steps=args.total_steps,
     )
 
+    # Load checkpoint if it exists
+    start_step = 0
+    if os.path.exists(args.checkpoint_path):
+        start_step, model, inner_optimizer, outer_optimizer, scheduler = (
+            load_checkpoint(
+                model,
+                inner_optimizer,
+                outer_optimizer,
+                scheduler,
+                args.checkpoint_path,
+                local_rank,
+                global_rank,
+                args.model,
+                args.dataset,
+                args.optim_method,
+            )
+        )
+        logger.info(f"Resuming training from step {start_step}")
+
     logger.info("Model initialized on rank %s", local_rank)
 
     # Load dataset
@@ -273,6 +299,7 @@ def main(args):
         model_name=args.model,
         dataset_name=args.dataset,
         device=args.device,
+        start_step=start_step,
     )
 
     wandb.finish()

@@ -6,9 +6,9 @@ from datetime import timedelta
 
 import torch
 import torch.distributed as dist
-import wandb
 from torch.nn.parallel import DistributedDataParallel as DDP
 
+import wandb
 from diloco_training.utils.demo_optimizer import DeMo
 from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
 
@@ -42,7 +42,7 @@ def ddp_setup(
 
     if local_rank == 0:
         wandb.login(key="6800d2a81420c3adf2b8f658e79f63bd4003b3e1")
-        wandb.init(project="diloco_training")
+        wandb.init(project="diloco_training", id="5abkxjf5", resume="allow")
 
 
 def get_offloaded_param(outer_optimizer: torch.optim.Optimizer, device="cuda"):
@@ -217,8 +217,9 @@ def load_checkpoint(
     global_rank,
     model_name,
     dataset_name,
+    optim_method,
 ):
-    checkpoint_file = f"{checkpoint_path}_{model_name}_{dataset_name}_node_{global_rank}_rank_{local_rank}.pth"
+    checkpoint_file = f"{checkpoint_path}_{model_name}_{dataset_name}_node_{global_rank}_rank_{local_rank}_optim_{optim_method}.pth"
     if os.path.isfile(checkpoint_file):
         checkpoint = torch.load(checkpoint_file)
         model.load_state_dict(checkpoint["model_state_dict"])
@@ -229,7 +230,7 @@ def load_checkpoint(
         logger.info(
             f"Checkpoint loaded from step {step} for global rank {global_rank} and local rank {local_rank}"
         )
-        return step
+        return step, model, inner_optimizer, outer_optimizer, scheduler
     else:
         logger.info(
             f"No checkpoint found for global rank {global_rank} and local rank {local_rank}, starting from scratch"
