@@ -49,3 +49,24 @@ The Makefile includes several targets to streamline common development and deplo
   ```bash
   make build
   ```
+
+## UV
+
+1. Install UV
+```
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env
+```
+2. Create, activate, and install dependecies venv
+```
+uv venv
+source .venv/bin/activate
+uv sync
+```
+
+## Tests
+ 
+To execute the tests one needs to perform UV installation step and then:
+```
+uv run pytest --dev
+```
