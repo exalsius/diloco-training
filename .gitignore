@@ -7,7 +7,7 @@ wheels/
 diloco_training/training/wandb
 *.egg-info
 *.pth
-
+wandb/
 # Virtual environments
 .venv
 
