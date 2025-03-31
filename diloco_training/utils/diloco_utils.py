@@ -42,9 +42,21 @@ def ddp_setup(
         torch.cuda.set_device(local_rank)
 
 def wandb_setup(local_rank, user_key, project_name, run_id=None):
-    if local_rank == 0:
-        wandb.login(key=user_key)
-        wandb.init(project=project_name, id=run_id, resume='allow')
+    wandb.login(key=user_key)
+    wandb.init(project=project_name, group='diloco_workers', name=f'worker-{local_rank}', id=run_id, resume='allow')
+
+
+def compute_l2_norm(current_params, reference_params, normalize=True):
+    """Compute the L2 norm of the difference between current and reference parameters."""
+    l2_norm = 0.0
+    total_params = 0
+    for current, reference in zip(current_params, reference_params):
+        l2_norm += torch.norm(current - reference).item() ** 2
+        total_params += current.numel()
+    l2_norm = l2_norm ** 0.5  # Take the square root
+    if normalize:
+        l2_norm /= total_params ** 0.5  # Normalize by the square root of the number of parameters
+    return l2_norm
 
 
 def get_offloaded_param(outer_optimizer: torch.optim.Optimizer, device="cuda"):
@@ -138,6 +150,19 @@ def get_optimizers(model, lr, outer_lr, optim_method="demo"):
 
     return inner_optimizer, outer_optimizer
 
+def log_inner_stats(local_rank, real_step, loss_batch, sync_count, l2_norm, normalized_l2_norm):
+    dict_to_log = {
+        "local_rank": local_rank,
+        "inner_loss": loss_batch.item(),
+        "real_step": real_step,
+        "inner_perplexity": torch.exp(loss_batch).item(),
+        "sync_count": sync_count,
+        "param_drift_l2_norm": l2_norm,
+        "param_drift_normalized_l2_norm": normalized_l2_norm,
+    }
+
+    wandb.log(dict_to_log)
+
 
 def log_stats(
     local_rank,
@@ -205,7 +230,7 @@ def save_checkpoint(
     checkpoint_file = f"{checkpoint_path}_{model_name}_{dataset_name}_node_{global_rank}_rank_{local_rank}_optim_{optim_method}.pth"
     torch.save(checkpoint, checkpoint_file)
     logger.info(
-        f"Checkpoint saved at step {step} for global rank {global_rank} and local rank {local_rank}, optim method {optim_method}"
+        f"Checkpoint saved for global rank {global_rank} and local rank {local_rank}, optim method {optim_method}"
     )
 
 

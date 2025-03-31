@@ -1,6 +1,7 @@
 import argparse
 import logging.config
 import os
+import torch
 import torch.distributed as dist
 import wandb
 
@@ -17,12 +18,14 @@ from diloco_training.utils.diloco_utils import (
     initialize_model,
     load_checkpoint,
     log_stats,
+    log_inner_stats,
     save_checkpoint,
     update_outer_optimizer,
     update_inner_optimizer,
     prepare_batch,
     forward_and_compute_loss,
-    wandb_setup
+    wandb_setup,
+    compute_l2_norm
 )
 from diloco_training.utils.args_types import (
     __dataset_type,
@@ -67,6 +70,8 @@ def train(
     logger.info(f"Gradient accumulation steps: {gradient_accumulation_steps}")
 
     params_offloaded = get_offloaded_param(outer_optimizer, device=device)
+    reference_params = [param.clone().detach() for param in model.parameters()]  # Initialize reference parameters
+
     for step, batch in enumerate(train_dataloader):
         if step < start_step:
             continue
@@ -84,9 +89,16 @@ def train(
 
         if step_within_grad_acc == 0:
             logger.info(
-                f"Local rank {local_rank} - Step {(step + 1)* world_size / gradient_accumulation_steps} - Loss: {loss_batch.item()}"
+                f"Local rank {local_rank} - Total Step {(step + 1)* world_size / gradient_accumulation_steps} - Loss: {loss_batch.item()}"
             )
             update_inner_optimizer(inner_optimizer, scheduler, model)
+
+            # Compute and log parameter drift
+            current_params = [param.clone().detach() for param in model.parameters()]
+            l2_norm = compute_l2_norm(current_params, reference_params, normalize=False)
+            normalized_l2_norm = compute_l2_norm(current_params, reference_params, normalize=True)
+            log_inner_stats(local_rank, real_step, loss_batch, sync_count, l2_norm, normalized_l2_norm)
+
             if real_step % local_steps == 0:
                 logger.info(
                     f"Local rank {local_rank} - Syncing outer optimizer at step {real_step}"
@@ -106,10 +118,15 @@ def train(
                     device=device,
                 )
                 params_offloaded = get_offloaded_param(outer_optimizer, device=device)
+
+                # Update reference parameters after outer optimizer sync
+                reference_params = [param.clone().detach() for param in model.parameters()]
+
                 # Update the total bytes sent and received
                 total_bytes_sent += bytes_sent
                 total_bytes_received += bytes_received
                 sync_count += 1
+
             if real_step % checkpoint_interval == 0:
                 val_stats = evaluate_model(val_dataloader, model, local_rank, global_rank)
                 dist.barrier()
@@ -345,13 +362,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--wandb_project_name",
         type=str,
-        default='diloco_training'
+        default='diloco_training',
         help="WandB project name.",
     )
     parser.add_argument(
         "--wandb_run_id",
         type=str,
-        default=None
+        default=None,
         help="WandB run ID for resuming or tracking experiments.",
     )
     args = parser.parse_args()
