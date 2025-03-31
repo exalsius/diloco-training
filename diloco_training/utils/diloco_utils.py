@@ -3,6 +3,7 @@ import logging.config
 import os
 import time
 from datetime import timedelta
+from diloco_training.utils.quantization import distributed_reduce_quantized
 
 import torch
 import torch.distributed as dist
@@ -40,9 +41,10 @@ def ddp_setup(
     if device == "cuda":
         torch.cuda.set_device(local_rank)
 
+def wandb_setup(local_rank, user_key, project_name, run_id=None):
     if local_rank == 0:
-        wandb.login(key="6800d2a81420c3adf2b8f658e79f63bd4003b3e1")
-        wandb.init(project="diloco_training")
+        wandb.login(key=user_key)
+        wandb.init(project=project_name, id=run_id, resume='allow')
 
 
 def get_offloaded_param(outer_optimizer: torch.optim.Optimizer, device="cuda"):
@@ -236,3 +238,66 @@ def load_checkpoint(
             f"No checkpoint found for global rank {global_rank} and local rank {local_rank}, starting from scratch"
         )
         return 0
+
+def prepare_batch(batch, device="cuda"):
+    for key in batch.keys():
+        batch[key] = batch[key].to(device)
+    return batch
+
+
+def forward_and_compute_loss(model, batch, gradient_accumulation_steps):
+    outputs = model(**batch)
+    loss = outputs.loss / gradient_accumulation_steps
+    return loss
+
+
+def update_inner_optimizer(inner_optimizer, scheduler, model):
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    inner_optimizer.step()
+    scheduler.step()
+    inner_optimizer.zero_grad()
+
+
+def update_outer_optimizer(
+    params_offloaded,
+    main_param,
+    optim_method,
+    world_size,
+    outer_optimizer,
+    device="cuda",
+):
+    bytes_sent = 0
+    bytes_received = 0
+    for param_offloaded, param in zip(params_offloaded, main_param):
+        param_offloaded_on_device = param_offloaded.data.to(param.device)
+        param.grad = param_offloaded_on_device - param.data
+        # ReduceOp.AVG with Gloo is not supported, so we use SUM instead and manually average later
+        op = dist.ReduceOp.AVG if device == "cuda" else dist.ReduceOp.SUM
+        if optim_method != "demo":
+            is_quantized = optim_method == "sgd_quantized"
+            param_size = param.grad.numel() * (
+                1 if is_quantized else param.grad.element_size()
+            )
+            if is_quantized:
+                param_size += 8
+                param.grad = distributed_reduce_quantized(param.grad, op=op)
+                if device == "cpu":
+                    # Manual averaging after SUM since dist.ReduceOp.AVG is not supported with gloo
+                    # and we use dist.ReduceOp.SUM instead
+                    param.grad.div_(world_size)
+            else:
+                dist.all_reduce(param.grad, op=op)
+                # Manual averaging after SUM since dist.ReduceOp.AVG is not supported with gloo
+                # and we use dist.ReduceOp.SUM instead
+                if device == "cpu":
+                    param.grad.div_(world_size)
+            bytes_sent += param_size
+            bytes_received += param_size * (world_size - 1)
+            param.data = param_offloaded_on_device
+    outer_optimizer.step()
+    outer_optimizer.zero_grad()
+    if optim_method == "demo":
+        bytes_sent = outer_optimizer.data_transmit
+        bytes_received = outer_optimizer.data_receive
+    return bytes_sent, bytes_received
+
