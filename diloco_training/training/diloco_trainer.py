@@ -1,11 +1,9 @@
 import argparse
 import logging.config
 import os
-import torch
 import torch.distributed as dist
 import wandb
 
-from argparse import ArgumentTypeError
 from transformers import get_cosine_schedule_with_warmup
 
 from diloco_training.data import DATASET_REGISTRY
