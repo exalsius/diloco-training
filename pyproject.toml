@@ -43,4 +43,9 @@ packages = ["diloco_training"]
 [tool.pytest.ini_options]
 testpaths = "tests"
 python_files = "test_*.py"
+pythonpath = ["."]
 
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]
