@@ -9,8 +9,8 @@ from transformers import get_cosine_schedule_with_warmup
 from diloco_training.data import DATASET_REGISTRY
 from diloco_training.models import MODEL_REGISTRY
 from diloco_training.utils.args_types import (
-    __dataset_type,
-    __model_type,
+    dataset_type,
+    model_type,
 )
 from diloco_training.utils.diloco_utils import (
     ddp_setup,
@@ -229,13 +229,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Standard DDP Training Script")
     parser.add_argument(
         "--model",
-        type=__model_type,
+        type=model_type,
         required=True,
         help="Model to train. Options: " + ", ".join(MODEL_REGISTRY.keys()) + ".",
     )
     parser.add_argument(
         "--dataset",
-        type=__dataset_type,
+        type=dataset_type,
         required=True,
         help="Dataset to use. Options: " + ", ".join(DATASET_REGISTRY.keys()) + ".",
     )

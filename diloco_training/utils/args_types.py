@@ -1,8 +1,10 @@
-from diloco_training.data import DATASET_REGISTRY
-from diloco_training.models import MODEL_REGISTRY
 from argparse import ArgumentTypeError
 
-def __dataset_type(value):
+from diloco_training.data import DATASET_REGISTRY
+from diloco_training.models import MODEL_REGISTRY
+
+
+def dataset_type(value):
     if value not in DATASET_REGISTRY:
         valid_datasets = ", ".join(DATASET_REGISTRY.keys())
         raise ArgumentTypeError(
@@ -11,7 +13,7 @@ def __dataset_type(value):
     return value
 
 
-def __model_type(value):
+def model_type(value):
     if value not in MODEL_REGISTRY:
         valid_models = ", ".join(MODEL_REGISTRY.keys())
         raise ArgumentTypeError(
@@ -20,7 +22,7 @@ def __model_type(value):
     return value
 
 
-def __validate_optimizer(value):
+def validate_optimizer(value):
     valid_optimizers = ["demo", "sgd", "sgd_quantized"]
     if value not in valid_optimizers:
         raise ArgumentTypeError(

@@ -9,9 +9,9 @@ import wandb
 from diloco_training.data import DATASET_REGISTRY
 from diloco_training.models import MODEL_REGISTRY
 from diloco_training.utils.args_types import (
-    __dataset_type,
-    __model_type,
-    __validate_optimizer,
+    dataset_type,
+    model_type,
+    validate_optimizer,
 )
 from diloco_training.utils.diloco_utils import (
     compute_l2_norm,
@@ -287,13 +287,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DiLoCo Training Script")
     parser.add_argument(
         "--model",
-        type=__model_type,
+        type=model_type,
         required=True,
         help="Model to train. Options: " + ", ".join(MODEL_REGISTRY.keys()) + ".",
     )
     parser.add_argument(
         "--dataset",
-        type=__dataset_type,
+        type=dataset_type,
         required=True,
         help="Dataset to use. Options: " + ", ".join(DATASET_REGISTRY.keys()) + ".",
     )
@@ -341,7 +341,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--optim_method",
-        type=__validate_optimizer,
+        type=validate_optimizer,
         default="sgd",
         choices=["demo", "sgd", "sgd_quantized"],
         help="Optimizer: demo (DeMo), sgd (standard), or sgd_quantized.",
