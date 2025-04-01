@@ -317,9 +317,7 @@ def update_outer_optimizer(
         op = dist.ReduceOp.AVG if device == "cuda" else dist.ReduceOp.SUM
         if optim_method != "demo":
             is_quantized = optim_method == "sgd_quantized"
-            param_size = param.grad.numel() * (
-                1 if is_quantized else param.grad.element_size()
-            )
+            param_size = param.grad.nbytes
             if is_quantized:
                 param_size += 8
                 param.grad = distributed_reduce_quantized(param.grad, op=op)
@@ -337,8 +335,9 @@ def update_outer_optimizer(
             bytes_received += param_size * (world_size - 1)
             param.data = param_offloaded_on_device
     outer_optimizer.step()
-    outer_optimizer.zero_grad()
     if optim_method == "demo":
         bytes_sent = outer_optimizer.data_transmit
         bytes_received = outer_optimizer.data_receive
+    outer_optimizer.zero_grad()
+
     return bytes_sent, bytes_received
