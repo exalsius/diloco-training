@@ -1,92 +1,39 @@
 import argparse
 import logging.config
 import os
-from argparse import ArgumentTypeError
 
-import torch
 import torch.distributed as dist
 from transformers import get_cosine_schedule_with_warmup
 
 import wandb
 from diloco_training.data import DATASET_REGISTRY
 from diloco_training.models import MODEL_REGISTRY
+from diloco_training.utils.args_types import (
+    dataset_type,
+    model_type,
+    validate_optimizer,
+)
 from diloco_training.utils.diloco_utils import (
+    compute_l2_norm,
     ddp_setup,
     evaluate_model,
+    forward_and_compute_loss,
     get_offloaded_param,
     get_optimizers,
     initialize_model,
     load_checkpoint,
+    log_inner_stats,
     log_stats,
+    prepare_batch,
     save_checkpoint,
+    update_inner_optimizer,
+    update_outer_optimizer,
+    wandb_setup,
 )
 from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
-from diloco_training.utils.quantization import distributed_reduce_quantized
 
 logging.config.dictConfig(LOG_CONFIG)
 logger = get_logger("diloco_training")
-
-
-def prepare_batch(batch, device="cuda"):
-    for key in batch.keys():
-        batch[key] = batch[key].to(device)
-    return batch
-
-
-def compute_loss(model, batch, gradient_accumulation_steps):
-    outputs = model(**batch)
-    loss = outputs.loss / gradient_accumulation_steps
-    return loss
-
-
-def update_inner_optimizer(inner_optimizer, scheduler, model):
-    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-    inner_optimizer.step()
-    scheduler.step()
-    inner_optimizer.zero_grad()
-
-
-def sync_outer_optimizer_params(
-    params_offloaded,
-    main_param,
-    optim_method,
-    world_size,
-    outer_optimizer,
-    device="cuda",
-):
-    bytes_sent = 0
-    bytes_received = 0
-    for param_offloaded, param in zip(params_offloaded, main_param):
-        param_offloaded_on_device = param_offloaded.data.to(param.device)
-        param.grad = param_offloaded_on_device - param.data
-        # ReduceOp.AVG with Gloo is not supported, so we use SUM instead and manually average later
-        op = dist.ReduceOp.AVG if device == "cuda" else dist.ReduceOp.SUM
-        if optim_method != "demo":
-            is_quantized = optim_method == "sgd_quantized"
-            param_size = param.grad.numel() * (
-                1 if is_quantized else param.grad.element_size()
-            )
-            if is_quantized:
-                param_size += 8
-                param.grad = distributed_reduce_quantized(param.grad, op=op)
-                if device == "cpu":
-                    # Manual averaging after SUM since dist.ReduceOp.AVG is not supported with gloo
-                    # and we use dist.ReduceOp.SUM instead
-                    param.grad.div_(world_size)
-            else:
-                dist.all_reduce(param.grad, op=op)
-                # Manual averaging after SUM since dist.ReduceOp.AVG is not supported with gloo
-                # and we use dist.ReduceOp.SUM instead
-                if device == "cpu":
-                    param.grad.div_(world_size)
-            bytes_sent += param_size
-            bytes_received += param_size * (world_size - 1)
-            param.data = param_offloaded_on_device
-    outer_optimizer.step()
-    if optim_method == "demo":
-        bytes_sent = outer_optimizer.data_transmit
-        bytes_received = outer_optimizer.data_receive
-    return bytes_sent, bytes_received
 
 
 def train(
@@ -113,44 +60,62 @@ def train(
 ):
     model.train()
     loss_batch = 0
-    params_offloaded = get_offloaded_param(outer_optimizer, device=device)
     gradient_accumulation_steps = batch_size // per_device_train_batch_size
-
-    total_bytes_sent = 0
-    total_bytes_received = 0
-    sync_count = 0
-
-    # log the bellow parameters but with names
-    logger.info(f"Batch size: {batch_size}")
-    logger.info(f"Per device train batch size: {per_device_train_batch_size}")
+    total_bytes_sent, total_bytes_received, sync_count = 0, 0, 0
     logger.info(f"Gradient accumulation steps: {gradient_accumulation_steps}")
+
+    params_offloaded = get_offloaded_param(outer_optimizer, device=device)
+    reference_params = [
+        param.clone().detach() for param in model.parameters()
+    ]  # Initialize reference parameters
+
     for step, batch in enumerate(train_dataloader):
-        if start_step != 0:
-            if step < start_step:
-                continue
-            else:
-                logger.info(f"Starting training from step {start_step}...")
+        if step < start_step:
+            continue
+
+        if step == start_step:
+            logger.info(f"Starting training from step {start_step}...")
+
+        real_step = (step + 1) // gradient_accumulation_steps
+        step_within_grad_acc = (step + 1) % gradient_accumulation_steps
+
         batch = prepare_batch(batch, device=device)
-        loss = compute_loss(model, batch, gradient_accumulation_steps)
-        for key in batch.keys():
-            batch[key] = batch[key].to(device)
-        outputs = model(**batch)
-        loss = outputs.loss / gradient_accumulation_steps
+        loss = forward_and_compute_loss(model, batch, gradient_accumulation_steps)
         loss_batch += loss.detach()
         loss.backward()
 
-        if (step + 1) % gradient_accumulation_steps == 0:
+        if step_within_grad_acc == 0:
             logger.info(
-                f"Local rank {local_rank} - Step {(step + 1)* world_size / gradient_accumulation_steps} - Loss: {loss_batch.item()}"
+                f"Local rank {local_rank} - Total Step {(step + 1)* world_size / gradient_accumulation_steps} - Loss: {loss_batch.item()}"
             )
             update_inner_optimizer(inner_optimizer, scheduler, model)
-            if (step + 1) // gradient_accumulation_steps % local_steps == 0:
+
+            # Compute and log parameter drift
+            current_params = [param.clone().detach() for param in model.parameters()]
+            l2_norm = compute_l2_norm(current_params, reference_params, normalize=False)
+            normalized_l2_norm = compute_l2_norm(
+                current_params, reference_params, normalize=True
+            )
+            log_inner_stats(
+                local_rank,
+                real_step,
+                loss_batch,
+                sync_count,
+                l2_norm,
+                normalized_l2_norm,
+            )
+
+            if real_step % local_steps == 0:
+                logger.info(
+                    f"Local rank {local_rank} - Syncing outer optimizer at step {real_step}"
+                )
+                # Sync outer optimizer parameters
                 main_param = [
                     param
                     for group in inner_optimizer.param_groups
                     for param in group["params"]
                 ]
-                bytes_sent, bytes_received = sync_outer_optimizer_params(
+                bytes_sent, bytes_received = update_outer_optimizer(
                     params_offloaded,
                     main_param,
                     optim_method,
@@ -158,65 +123,58 @@ def train(
                     outer_optimizer,
                     device=device,
                 )
+                params_offloaded = get_offloaded_param(outer_optimizer, device=device)
+
+                # Update reference parameters after outer optimizer sync
+                reference_params = [
+                    param.clone().detach() for param in model.parameters()
+                ]
+
+                # Update the total bytes sent and received
                 total_bytes_sent += bytes_sent
                 total_bytes_received += bytes_received
-                outer_optimizer.zero_grad()
-                params_offloaded = get_offloaded_param(outer_optimizer, device=device)
                 sync_count += 1
-            if ((step + 1) / gradient_accumulation_steps) % checkpoint_interval != 0:
-                loss_batch = 0
-        if ((step + 1) / gradient_accumulation_steps) % checkpoint_interval == 0:
-            val_stats = evaluate_model(val_dataloader, model, local_rank, global_rank)
-            # logger.info(f"Local rank {local_rank} - Validation stats: {val_stats}")
-            dist.barrier()
-            log_stats(
-                local_rank,
-                (step + 1) // gradient_accumulation_steps,
-                loss_batch,
-                world_size,
-                batch_size,
-                optim_method,
-                sync_count,
-                total_bytes_sent,
-                total_bytes_received,
-                val_stats,
-                local_steps,
-                per_device_train_batch_size,
-            )
+
+            if real_step % checkpoint_interval == 0:
+                val_stats = evaluate_model(
+                    val_dataloader, model, local_rank, global_rank
+                )
+                dist.barrier()
+                log_stats(
+                    local_rank,
+                    (step + 1) // gradient_accumulation_steps,
+                    loss_batch,
+                    world_size,
+                    batch_size,
+                    optim_method,
+                    sync_count,
+                    total_bytes_sent,
+                    total_bytes_received,
+                    val_stats,
+                    local_steps,
+                    per_device_train_batch_size,
+                )
+                save_checkpoint(
+                    model,
+                    inner_optimizer,
+                    outer_optimizer,
+                    scheduler,
+                    step,
+                    checkpoint_path,
+                    local_rank,
+                    global_rank,
+                    model_name,
+                    dataset_name,
+                    optim_method,
+                )
             loss_batch = 0
-            save_checkpoint(
-                model,
-                inner_optimizer,
-                outer_optimizer,
-                scheduler,
-                step,
-                checkpoint_path,
-                local_rank,
-                global_rank,
-                model_name,
-                dataset_name,
-                optim_method,
-            )
-        # finish training
-        # TODO: final outer optimizer sync needed
-        if total_steps != -1 and total_steps < (
-            (step + 1) // gradient_accumulation_steps
-        ):
+
+        if total_steps != -1 and total_steps < (real_step * world_size):
+            # TODO: final outer optimizer sync needed
             break
 
 
 def main(args):
-    # Parse command-line arguments
-    model_class = MODEL_REGISTRY.get(args.model)
-    if model_class is None:
-        raise ValueError(f"Model {args.model} not found in registry.")
-
-    get_dataset = DATASET_REGISTRY.get(args.dataset)
-    if get_dataset is None:
-        raise ValueError(f"Dataset {args.dataset} not found in registry.")
-
-    outer_lr = 1e-3 if args.optim_method == "demo" else 0.7
-
     # Setup distributed training
     master_addr = os.environ["MASTER_ADDR"]
     master_port = os.environ["MASTER_PORT"]
@@ -233,9 +191,12 @@ def main(args):
     )
 
     # Initialize model and optimizers
+    model_class = MODEL_REGISTRY.get(args.model)
+    get_dataset = DATASET_REGISTRY.get(args.dataset)
+
     model_config, model = initialize_model(model_class, args.device)
     inner_optimizer, outer_optimizer = get_optimizers(
-        model, lr=4e-4, outer_lr=outer_lr, optim_method=args.optim_method
+        model, lr=args.lr, outer_lr=args.outer_lr, optim_method=args.optim_method
     )
     scheduler = get_cosine_schedule_with_warmup(
         inner_optimizer,
@@ -244,9 +205,9 @@ def main(args):
     )
 
     # Load checkpoint if it exists
-    start_step = 0
+    START_STEP = 0
     if os.path.exists(args.checkpoint_path):
-        start_step, model, inner_optimizer, outer_optimizer, scheduler = (
+        START_STEP, model, inner_optimizer, outer_optimizer, scheduler = (
             load_checkpoint(
                 model,
                 inner_optimizer,
@@ -260,8 +221,22 @@ def main(args):
                 args.optim_method,
             )
         )
-        logger.info(f"Resuming training from step {start_step}")
-
+        wandb_setup(
+            local_rank=local_rank,
+            user_key=args.wandb_user_key,
+            project_name=args.wandb_project_name,
+            run_id=args.wandb_run_id,
+        )
+        logger.info(f"Resuming training from step {START_STEP}")
+    else:
+        logger.info("No checkpoint found, starting from scratch.")
+        START_STEP = 0
+        wandb_setup(
+            local_rank=local_rank,
+            user_key=args.wandb_user_key,
+            project_name=args.wandb_project_name,
+            run_id=None,
+        )
     logger.info("Model initialized on rank %s", local_rank)
 
     # Load dataset
@@ -300,29 +275,11 @@ def main(args):
         model_name=args.model,
         dataset_name=args.dataset,
         device=args.device,
-        start_step=start_step,
+        start_step=START_STEP,
     )
 
     wandb.finish()
     dist.destroy_process_group()
-
-
-def __dataset_type(value):
-    if value not in DATASET_REGISTRY:
-        valid_datasets = ", ".join(DATASET_REGISTRY.keys())
-        raise ArgumentTypeError(
-            f"Invalid dataset: {value}. Must be one of: {valid_datasets}"
-        )
-    return value
-
-
-def __model_type(value):
-    if value not in MODEL_REGISTRY:
-        valid_models = ", ".join(MODEL_REGISTRY.keys())
-        raise ArgumentTypeError(
-            f"Invalid model: {value}. Must be one of: {valid_models}"
-        )
-    return value
 
 
 if __name__ == "__main__":
@@ -330,67 +287,101 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DiLoCo Training Script")
     parser.add_argument(
         "--model",
-        type=__model_type,
+        type=model_type,
         required=True,
-        help="Model to train (e.g., ResNet-50, GPT-Neo, etc.)",
+        help="Model to train. Options: " + ", ".join(MODEL_REGISTRY.keys()) + ".",
     )
     parser.add_argument(
         "--dataset",
-        type=__dataset_type,
+        type=dataset_type,
         required=True,
-        help="Dataset to use. Must be one of: " + ", ".join(DATASET_REGISTRY.keys()),
+        help="Dataset to use. Options: " + ", ".join(DATASET_REGISTRY.keys()) + ".",
     )
-    parser.add_argument("--batch_size", type=int, default=512, help="Global batch size")
     parser.add_argument(
         "--local_steps",
         type=int,
         default=500,
-        help="Local steps for outer-loop optimization",
+        help="Steps before syncing outer optimizer.",
     )
     parser.add_argument(
         "--lr",
         type=float,
+        default=1e-4,
+        help="Initial learning rate.",
+    )
+    parser.add_argument(
+        "--outer_lr",
+        type=float,
         default=1e-3,
-        help="Learning rate",
+        help="Outer learning rate.",
     )
     parser.add_argument(
         "--warmup_steps",
         type=int,
         default=50,
-        help="Warmup steps",
+        help="Number of warmup steps.",
     )
     parser.add_argument(
         "--total_steps",
         type=int,
         default=88000,
-        help="Total steps",
+        help="Total training steps.",
     )
-    parser.add_argument("--per_device_train_batch_size", type=int, default=32)
+    parser.add_argument(
+        "--per_device_train_batch_size",
+        type=int,
+        default=32,
+        help="Batch size per device.",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=512,
+        help="Total batch size across all devices.",
+    )
     parser.add_argument(
         "--optim_method",
-        type=str,
+        type=validate_optimizer,
         default="sgd",
         choices=["demo", "sgd", "sgd_quantized"],
-        help="Optimization method: demo (DeMo optimizer), sgd (standard SGD), sgd_quantized (SGD with quantization)",
+        help="Optimizer: demo (DeMo), sgd (standard), or sgd_quantized.",
     )
     parser.add_argument(
         "--checkpoint_path",
         type=str,
         default="checkpoint.pth",
-        help="Path to save/load checkpoints",
+        help="File path for saving/loading checkpoints.",
     )
     parser.add_argument(
         "--checkpoint_interval",
         type=int,
         default=512,
-        help="Interval steps to save checkpoints",
+        help="Steps between saving checkpoints.",
     )
     parser.add_argument(
         "--device",
         type=str,
         default="cuda",
         choices=["cuda", "cpu"],
-        help="Device to run the training on: cuda (GPU) or cpu",
+        help="Device to use: cuda (GPU) or cpu.",
+    )
+    parser.add_argument(
+        "--wandb_user_key",
+        type=str,
+        default=None,
+        help="WandB user key for authentication.",
+    )
+    parser.add_argument(
+        "--wandb_project_name",
+        type=str,
+        default="diloco_training",
+        help="WandB project name.",
+    )
+    parser.add_argument(
+        "--wandb_run_id",
+        type=str,
+        default=None,
+        help="WandB run ID for resuming or tracking experiments.",
     )
     args = parser.parse_args()
     main(args)

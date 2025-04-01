@@ -8,12 +8,21 @@ from transformers import get_cosine_schedule_with_warmup
 
 from diloco_training.data import DATASET_REGISTRY
 from diloco_training.models import MODEL_REGISTRY
+from diloco_training.utils.args_types import (
+    dataset_type,
+    model_type,
+)
 from diloco_training.utils.diloco_utils import (
     ddp_setup,
     evaluate_model,
+    forward_and_compute_loss,
     initialize_model,
+    load_checkpoint,
+    log_inner_stats,
     log_stats,
+    prepare_batch,
     save_checkpoint,
+    wandb_setup,
 )
 from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
 
@@ -21,23 +30,11 @@ logging.config.dictConfig(LOG_CONFIG)
 logger = get_logger("diloco_training")
 
 
-def prepare_batch(batch, device="cuda"):
-    for key in batch.keys():
-        batch[key] = batch[key].to(device)
-    return batch
-
-
-def compute_loss(model, batch, gradient_accumulation_steps):
-    outputs = model(**batch)
-    loss = outputs.loss / gradient_accumulation_steps
-    return loss
-
-
 def calculate_ddp_communication(model):
     total_bytes = 0
     for param in model.parameters():
         if param.requires_grad:
-            total_bytes += param.numel() * param.element_size()
+            total_bytes += param.nbytes
     return total_bytes
 
 
@@ -67,7 +64,7 @@ def train(
     total_bytes = 0
     for step, batch in enumerate(train_dataloader):
         batch = prepare_batch(batch, device=device)
-        loss = compute_loss(model, batch, gradient_accumulation_steps)
+        loss = forward_and_compute_loss(model, batch, gradient_accumulation_steps)
         loss_batch += loss.detach()
         loss.backward()
         total_bytes = calculate_ddp_communication(model)
@@ -75,29 +72,36 @@ def train(
         total_bytes_received += total_bytes * (
             world_size - 1
         )  # Received from other processes
-        if (step + 1) % gradient_accumulation_steps == 0:
+        real_step = (step + 1) // gradient_accumulation_steps
+        step_within_grad_acc = (step + 1) % gradient_accumulation_steps
+        if step_within_grad_acc == 0:
             logger.info(
-                f"Local rank {local_rank} - Step {(step + 1)* world_size / gradient_accumulation_steps} - Loss: {loss_batch.item()}"
+                f"Local rank {local_rank} - Step {real_step} - Loss: {loss_batch.item()}"
             )
-
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             scheduler.step()
             optimizer.zero_grad()
-            if ((step + 1) // gradient_accumulation_steps) % checkpoint_interval == 0:
+            log_inner_stats(
+                local_rank,
+                real_step,
+                loss_batch,
+                None,
+                None,
+                None,
+            )
+            if real_step % checkpoint_interval == 0:
                 val_stats = evaluate_model(
-                    val_dataloader, model, global_rank, local_rank
+                    val_dataloader, model, local_rank, global_rank
                 )
-                # barrier not needed here, since sync happens in backward
-                # if we add barrier, we will end up in deadlock
                 log_stats(
                     local_rank,
-                    (step + 1) // gradient_accumulation_steps,
+                    real_step,
                     loss_batch,
                     world_size,
                     batch_size,
                     "ddp",
-                    None,  # No sync count for standard DDP
+                    None,
                     total_bytes_sent,
                     total_bytes_received,
                     val_stats,
@@ -118,21 +122,14 @@ def train(
                     "ddp",
                 )
             loss_batch = 0
-        if total_steps != -1 and total_steps < (
-            (step + 1) // gradient_accumulation_steps
-        ):
+        if total_steps != -1 and total_steps < (real_step):
             break
 
 
 def main(args):
     # Parse command-line arguments
     model_class = MODEL_REGISTRY.get(args.model)
-    if model_class is None:
-        raise ValueError(f"Model {args.model} not found in registry.")
-
     get_dataset = DATASET_REGISTRY.get(args.dataset)
-    if get_dataset is None:
-        raise ValueError(f"Dataset {args.dataset} not found in registry.")
 
     # Setup distributed training
     master_addr = os.environ["MASTER_ADDR"]
@@ -149,6 +146,8 @@ def main(args):
         device=args.device,
     )
 
+    logger.info("Model initialized on rank %s", local_rank)
+
     # Initialize model and optimizer
     model_config, model = initialize_model(
         model_class, args.device, optim_method="ddp", local_rank=local_rank
@@ -162,6 +161,41 @@ def main(args):
         num_warmup_steps=args.warmup_steps,
         num_training_steps=args.total_steps,
     )
+
+    # Load checkpoint if it exists
+    START_STEP = 0
+    placeholder_for_none_optimizer = None
+    if os.path.exists(args.checkpoint_path):
+        START_STEP, model, optimizer, placeholder_for_none_optimizer, scheduler = (
+            load_checkpoint(
+                model,
+                optimizer,
+                placeholder_for_none_optimizer,  # No outer optimizer
+                scheduler,
+                args.checkpoint_path,
+                local_rank,
+                global_rank,
+                args.model,
+                args.dataset,
+                args.optim_method,
+            )
+        )
+        wandb_setup(
+            local_rank=local_rank,
+            user_key=args.wandb_user_key,
+            project_name=args.wandb_project_name,
+            run_id=args.wandb_run_id,
+        )
+        logger.info(f"Resuming training from step {START_STEP}")
+    else:
+        logger.info("No checkpoint found, starting from scratch.")
+        START_STEP = 0
+        wandb_setup(
+            local_rank=local_rank,
+            user_key=args.wandb_user_key,
+            project_name=args.wandb_project_name,
+            run_id=None,
+        )
 
     # Load dataset
     train_dataloader, val_dataloader = get_dataset(
@@ -195,54 +229,89 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Standard DDP Training Script")
     parser.add_argument(
         "--model",
-        type=str,
+        type=model_type,
         required=True,
-        help="Model to train (e.g., ResNet-50, GPT-Neo, etc.)",
+        help="Model to train. Options: " + ", ".join(MODEL_REGISTRY.keys()) + ".",
     )
     parser.add_argument(
         "--dataset",
-        type=str,
+        type=dataset_type,
         required=True,
-        help="Dataset to use. Must be one of: " + ", ".join(DATASET_REGISTRY.keys()),
+        help="Dataset to use. Options: " + ", ".join(DATASET_REGISTRY.keys()) + ".",
     )
-    parser.add_argument("--batch_size", type=int, default=512, help="Global batch size")
     parser.add_argument(
         "--lr",
         type=float,
-        default=1e-3,
-        help="Learning rate",
+        default=1e-4,
+        help="Initial learning rate.",
     )
     parser.add_argument(
         "--warmup_steps",
         type=int,
         default=50,
-        help="Warmup steps",
+        help="Number of warmup steps.",
     )
     parser.add_argument(
         "--total_steps",
         type=int,
         default=88000,
-        help="Total steps",
+        help="Total training steps.",
     )
-    parser.add_argument("--per_device_train_batch_size", type=int, default=32)
+    parser.add_argument(
+        "--per_device_train_batch_size",
+        type=int,
+        default=32,
+        help="Batch size per device.",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=512,
+        help="Total batch size across all devices.",
+    )
+    parser.add_argument(
+        "--optim_method",
+        type=str,
+        default="ddp",
+        choices=["ddp"],
+        help="Optimizer: ddp",
+    )
     parser.add_argument(
         "--checkpoint_path",
         type=str,
         default="checkpoint.pth",
-        help="Path to save/load checkpoints",
+        help="File path for saving/loading checkpoints.",
     )
     parser.add_argument(
         "--checkpoint_interval",
         type=int,
-        default=4,
-        help="Interval steps to save checkpoints",
+        default=512,
+        help="Steps between saving checkpoints.",
     )
     parser.add_argument(
         "--device",
         type=str,
         default="cuda",
         choices=["cuda", "cpu"],
-        help="Device to run the training on: cuda (GPU) or cpu",
+        help="Device to use: cuda (GPU) or cpu.",
+    )
+    parser.add_argument(
+        "--wandb_user_key",
+        type=str,
+        default=None,
+        help="WandB user key for authentication.",
+    )
+    parser.add_argument(
+        "--wandb_project_name",
+        type=str,
+        default="diloco_training",
+        help="WandB project name.",
+    )
+    parser.add_argument(
+        "--wandb_run_id",
+        type=str,
+        default=None,
+        help="WandB run ID for resuming or tracking experiments.",
     )
     args = parser.parse_args()
     main(args)

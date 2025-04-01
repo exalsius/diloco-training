@@ -11,6 +11,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import wandb
 from diloco_training.utils.demo_optimizer import DeMo
 from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
+from diloco_training.utils.quantization import distributed_reduce_quantized
 
 logging.config.dictConfig(LOG_CONFIG)
 logger = get_logger("diloco_training")
@@ -40,9 +41,35 @@ def ddp_setup(
     if device == "cuda":
         torch.cuda.set_device(local_rank)
 
-    if local_rank == 0:
-        wandb.login(key="6800d2a81420c3adf2b8f658e79f63bd4003b3e1")
-        wandb.init(project="diloco_training")
+
+def wandb_setup(local_rank, user_key, project_name, run_id=None):
+    if user_key is None:
+        os.environ["WANDB_MODE"] = "offline"
+        wandb.init(project=project_name)
+    else:
+        wandb.login(key=user_key)
+        wandb.init(
+            project=project_name,
+            group="diloco_workers",
+            name=f"worker-{local_rank}",
+            id=run_id,
+            resume="allow",
+        )
+
+
+def compute_l2_norm(current_params, reference_params, normalize=True):
+    """Compute the L2 norm of the difference between current and reference parameters."""
+    l2_norm = 0.0
+    total_params = 0
+    for current, reference in zip(current_params, reference_params):
+        l2_norm += torch.norm(current - reference).item() ** 2
+        total_params += current.numel()
+    l2_norm = l2_norm**0.5  # Take the square root
+    if normalize:
+        l2_norm /= (
+            total_params**0.5
+        )  # Normalize by the square root of the number of parameters
+    return l2_norm
 
 
 def get_offloaded_param(outer_optimizer: torch.optim.Optimizer, device="cuda"):
@@ -137,6 +164,22 @@ def get_optimizers(model, lr, outer_lr, optim_method="demo"):
     return inner_optimizer, outer_optimizer
 
 
+def log_inner_stats(
+    local_rank, real_step, loss_batch, sync_count, l2_norm, normalized_l2_norm
+):
+    dict_to_log = {
+        "local_rank": local_rank,
+        "inner_loss": loss_batch.item(),
+        "real_step": real_step,
+        "inner_perplexity": torch.exp(loss_batch).item(),
+        "sync_count": sync_count,
+        "param_drift_l2_norm": l2_norm,
+        "param_drift_normalized_l2_norm": normalized_l2_norm,
+    }
+
+    wandb.log(dict_to_log)
+
+
 def log_stats(
     local_rank,
     effective_step,
@@ -203,7 +246,7 @@ def save_checkpoint(
     checkpoint_file = f"{checkpoint_path}_{model_name}_{dataset_name}_node_{global_rank}_rank_{local_rank}_optim_{optim_method}.pth"
     torch.save(checkpoint, checkpoint_file)
     logger.info(
-        f"Checkpoint saved at step {step} for global rank {global_rank} and local rank {local_rank}, optim method {optim_method}"
+        f"Checkpoint saved for global rank {global_rank} and local rank {local_rank}, optim method {optim_method}"
     )
 
 
@@ -236,3 +279,65 @@ def load_checkpoint(
             f"No checkpoint found for global rank {global_rank} and local rank {local_rank}, starting from scratch"
         )
         return 0
+
+
+def prepare_batch(batch, device="cuda"):
+    for key in batch.keys():
+        batch[key] = batch[key].to(device)
+    return batch
+
+
+def forward_and_compute_loss(model, batch, gradient_accumulation_steps):
+    outputs = model(**batch)
+    loss = outputs.loss / gradient_accumulation_steps
+    return loss
+
+
+def update_inner_optimizer(inner_optimizer, scheduler, model):
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    inner_optimizer.step()
+    scheduler.step()
+    inner_optimizer.zero_grad()
+
+
+def update_outer_optimizer(
+    params_offloaded,
+    main_param,
+    optim_method,
+    world_size,
+    outer_optimizer,
+    device="cuda",
+):
+    bytes_sent = 0
+    bytes_received = 0
+    for param_offloaded, param in zip(params_offloaded, main_param):
+        param_offloaded_on_device = param_offloaded.data.to(param.device)
+        param.grad = param_offloaded_on_device - param.data
+        # ReduceOp.AVG with Gloo is not supported, so we use SUM instead and manually average later
+        op = dist.ReduceOp.AVG if device == "cuda" else dist.ReduceOp.SUM
+        if optim_method != "demo":
+            is_quantized = optim_method == "sgd_quantized"
+            param_size = param.grad.nbytes
+            if is_quantized:
+                param_size += 8
+                param.grad = distributed_reduce_quantized(param.grad, op=op)
+                if device == "cpu":
+                    # Manual averaging after SUM since dist.ReduceOp.AVG is not supported with gloo
+                    # and we use dist.ReduceOp.SUM instead
+                    param.grad.div_(world_size)
+            else:
+                dist.all_reduce(param.grad, op=op)
+                # Manual averaging after SUM since dist.ReduceOp.AVG is not supported with gloo
+                # and we use dist.ReduceOp.SUM instead
+                if device == "cpu":
+                    param.grad.div_(world_size)
+            bytes_sent += param_size
+            bytes_received += param_size * (world_size - 1)
+            param.data = param_offloaded_on_device
+    outer_optimizer.step()
+    if optim_method == "demo":
+        bytes_sent = outer_optimizer.data_transmit
+        bytes_received = outer_optimizer.data_receive
+    outer_optimizer.zero_grad()
+
+    return bytes_sent, bytes_received
