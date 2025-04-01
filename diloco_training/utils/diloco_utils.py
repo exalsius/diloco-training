@@ -3,7 +3,6 @@ import logging.config
 import os
 import time
 from datetime import timedelta
-from diloco_training.utils.quantization import distributed_reduce_quantized
 
 import torch
 import torch.distributed as dist
@@ -12,6 +11,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import wandb
 from diloco_training.utils.demo_optimizer import DeMo
 from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
+from diloco_training.utils.quantization import distributed_reduce_quantized
 
 logging.config.dictConfig(LOG_CONFIG)
 logger = get_logger("diloco_training")
@@ -41,9 +41,20 @@ def ddp_setup(
     if device == "cuda":
         torch.cuda.set_device(local_rank)
 
+
 def wandb_setup(local_rank, user_key, project_name, run_id=None):
-    wandb.login(key=user_key)
-    wandb.init(project=project_name, group='diloco_workers', name=f'worker-{local_rank}', id=run_id, resume='allow')
+    if user_key is None:
+        os.environ["WANDB_MODE"] = "offline"
+        wandb.init(project=project_name)
+    else:
+        wandb.login(key=user_key)
+        wandb.init(
+            project=project_name,
+            group="diloco_workers",
+            name=f"worker-{local_rank}",
+            id=run_id,
+            resume="allow",
+        )
 
 
 def compute_l2_norm(current_params, reference_params, normalize=True):
@@ -53,9 +64,11 @@ def compute_l2_norm(current_params, reference_params, normalize=True):
     for current, reference in zip(current_params, reference_params):
         l2_norm += torch.norm(current - reference).item() ** 2
         total_params += current.numel()
-    l2_norm = l2_norm ** 0.5  # Take the square root
+    l2_norm = l2_norm**0.5  # Take the square root
     if normalize:
-        l2_norm /= total_params ** 0.5  # Normalize by the square root of the number of parameters
+        l2_norm /= (
+            total_params**0.5
+        )  # Normalize by the square root of the number of parameters
     return l2_norm
 
 
@@ -150,7 +163,10 @@ def get_optimizers(model, lr, outer_lr, optim_method="demo"):
 
     return inner_optimizer, outer_optimizer
 
-def log_inner_stats(local_rank, real_step, loss_batch, sync_count, l2_norm, normalized_l2_norm):
+
+def log_inner_stats(
+    local_rank, real_step, loss_batch, sync_count, l2_norm, normalized_l2_norm
+):
     dict_to_log = {
         "local_rank": local_rank,
         "inner_loss": loss_batch.item(),
@@ -264,6 +280,7 @@ def load_checkpoint(
         )
         return 0
 
+
 def prepare_batch(batch, device="cuda"):
     for key in batch.keys():
         batch[key] = batch[key].to(device)
@@ -325,4 +342,3 @@ def update_outer_optimizer(
         bytes_sent = outer_optimizer.data_transmit
         bytes_received = outer_optimizer.data_receive
     return bytes_sent, bytes_received
-

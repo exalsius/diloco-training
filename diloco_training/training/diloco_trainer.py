@@ -1,39 +1,36 @@
 import argparse
 import logging.config
 import os
-import torch.distributed as dist
-import wandb
 
+import torch.distributed as dist
 from transformers import get_cosine_schedule_with_warmup
 
+import wandb
 from diloco_training.data import DATASET_REGISTRY
 from diloco_training.models import MODEL_REGISTRY
+from diloco_training.utils.args_types import (
+    __dataset_type,
+    __model_type,
+    __validate_optimizer,
+)
 from diloco_training.utils.diloco_utils import (
+    compute_l2_norm,
     ddp_setup,
     evaluate_model,
+    forward_and_compute_loss,
     get_offloaded_param,
     get_optimizers,
     initialize_model,
     load_checkpoint,
-    log_stats,
     log_inner_stats,
-    save_checkpoint,
-    update_outer_optimizer,
-    update_inner_optimizer,
+    log_stats,
     prepare_batch,
-    forward_and_compute_loss,
+    save_checkpoint,
+    update_inner_optimizer,
+    update_outer_optimizer,
     wandb_setup,
-    compute_l2_norm
 )
-from diloco_training.utils.args_types import (
-    __dataset_type,
-    __model_type,
-    __validate_optimizer
-)
-from diloco_training.utils.exalsius_logger import (
-    LOG_CONFIG,
-    get_logger
-)
+from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
 
 logging.config.dictConfig(LOG_CONFIG)
 logger = get_logger("diloco_training")
@@ -68,7 +65,9 @@ def train(
     logger.info(f"Gradient accumulation steps: {gradient_accumulation_steps}")
 
     params_offloaded = get_offloaded_param(outer_optimizer, device=device)
-    reference_params = [param.clone().detach() for param in model.parameters()]  # Initialize reference parameters
+    reference_params = [
+        param.clone().detach() for param in model.parameters()
+    ]  # Initialize reference parameters
 
     for step, batch in enumerate(train_dataloader):
         if step < start_step:
@@ -76,7 +75,7 @@ def train(
 
         if step == start_step:
             logger.info(f"Starting training from step {start_step}...")
-            
+
         real_step = (step + 1) // gradient_accumulation_steps
         step_within_grad_acc = (step + 1) % gradient_accumulation_steps
 
@@ -94,8 +93,17 @@ def train(
             # Compute and log parameter drift
             current_params = [param.clone().detach() for param in model.parameters()]
             l2_norm = compute_l2_norm(current_params, reference_params, normalize=False)
-            normalized_l2_norm = compute_l2_norm(current_params, reference_params, normalize=True)
-            log_inner_stats(local_rank, real_step, loss_batch, sync_count, l2_norm, normalized_l2_norm)
+            normalized_l2_norm = compute_l2_norm(
+                current_params, reference_params, normalize=True
+            )
+            log_inner_stats(
+                local_rank,
+                real_step,
+                loss_batch,
+                sync_count,
+                l2_norm,
+                normalized_l2_norm,
+            )
 
             if real_step % local_steps == 0:
                 logger.info(
@@ -118,7 +126,9 @@ def train(
                 params_offloaded = get_offloaded_param(outer_optimizer, device=device)
 
                 # Update reference parameters after outer optimizer sync
-                reference_params = [param.clone().detach() for param in model.parameters()]
+                reference_params = [
+                    param.clone().detach() for param in model.parameters()
+                ]
 
                 # Update the total bytes sent and received
                 total_bytes_sent += bytes_sent
@@ -126,7 +136,9 @@ def train(
                 sync_count += 1
 
             if real_step % checkpoint_interval == 0:
-                val_stats = evaluate_model(val_dataloader, model, local_rank, global_rank)
+                val_stats = evaluate_model(
+                    val_dataloader, model, local_rank, global_rank
+                )
                 dist.barrier()
                 log_stats(
                     local_rank,
@@ -156,10 +168,11 @@ def train(
                     optim_method,
                 )
             loss_batch = 0
-    
+
         if total_steps != -1 and total_steps < (real_step * world_size):
             # TODO: final outer optimizer sync needed
             break
+
 
 def main(args):
     # Setup distributed training
@@ -207,21 +220,22 @@ def main(args):
                 args.dataset,
                 args.optim_method,
             )
-            
         )
-        wandb_setup(local_rank=local_rank, 
-            user_key=args.wandb_user_key, 
-            project_name=args.wandb_project_name, 
-            run_id=args.wandb_run_id
+        wandb_setup(
+            local_rank=local_rank,
+            user_key=args.wandb_user_key,
+            project_name=args.wandb_project_name,
+            run_id=args.wandb_run_id,
         )
         logger.info(f"Resuming training from step {START_STEP}")
     else:
         logger.info("No checkpoint found, starting from scratch.")
         START_STEP = 0
-        wandb_setup(local_rank=local_rank, 
-            user_key=args.wandb_user_key, 
-            project_name=args.wandb_project_name, 
-            run_id=None
+        wandb_setup(
+            local_rank=local_rank,
+            user_key=args.wandb_user_key,
+            project_name=args.wandb_project_name,
+            run_id=None,
         )
     logger.info("Model initialized on rank %s", local_rank)
 
@@ -354,13 +368,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--wandb_user_key",
         type=str,
-        required=True,
+        default=None,
         help="WandB user key for authentication.",
     )
     parser.add_argument(
         "--wandb_project_name",
         type=str,
-        default='diloco_training',
+        default="diloco_training",
         help="WandB project name.",
     )
     parser.add_argument(

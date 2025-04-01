@@ -7,7 +7,7 @@ from transformers import get_cosine_schedule_with_warmup
 from diloco_training.data.test_datasets import SequenceTestDataset
 from diloco_training.models.gpt_neo import get_tiny_gpt_neo
 from diloco_training.training.diloco_trainer import train
-from diloco_training.utils.diloco_utils import ddp_setup
+from diloco_training.utils.diloco_utils import ddp_setup, wandb_setup
 
 
 @pytest.fixture
@@ -55,7 +55,7 @@ def test_train(setup_training_env):
     )
 
     ddp_setup(device="cpu")
-
+    wandb_setup(local_rank, None, "test", None)
     # Run training
     train(
         model=model,
