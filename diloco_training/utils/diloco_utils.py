@@ -94,8 +94,8 @@ def get_offloaded_param(outer_optimizer: torch.optim.Optimizer, device="cuda"):
 def evaluate_model(eval_dataloader, model, global_rank, local_rank):
     if global_rank == 0 and local_rank == 0:
         logger.info("Starting evaluation...")
-        loss_eval = 0
-        step_eval = 0
+        loss_eval: float = 0.0
+        step_eval: int = 0
         eval_start_time = time.time()
         for step, batch_eval in enumerate(eval_dataloader):
             for key in batch_eval.keys():
@@ -112,8 +112,11 @@ def evaluate_model(eval_dataloader, model, global_rank, local_rank):
         model.train()
 
         logger.info(f"Evaluation time: {eval_end_time - eval_start_time:.2f} seconds")
-        loss_eval /= step_eval
-        return {"eval_loss": loss_eval, "eval_perplexity": torch.exp(loss_eval)}
+        loss_eval /= float(step_eval)
+        return {
+            "eval_loss": loss_eval,
+            "eval_perplexity": torch.exp(torch.tensor(loss_eval)).item(),
+        }
     else:
         return None
 
