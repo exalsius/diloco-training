@@ -32,11 +32,11 @@ logger = get_logger("diloco_training")
 
 
 def calculate_ddp_communication(model):
-    total_bytes = 0
+    nbytes = 0
     for param in model.parameters():
         if param.requires_grad:
-            total_bytes += param.nbytes
-    return total_bytes
+            nbytes += param.nbytes
+    return nbytes
 
 
 def train(
@@ -61,18 +61,21 @@ def train(
     gradient_accumulation_steps = batch_size // per_device_train_batch_size
     loss_batch = 0
     total_bytes_sent = 0
-    total_bytes_received = 0
-    total_bytes = 0
     for step, batch in enumerate(train_dataloader):
         batch = prepare_batch(batch, device=device)
         loss = forward_and_compute_loss(model, batch, gradient_accumulation_steps)
         loss_batch += loss.detach()
         loss.backward()
-        total_bytes = calculate_ddp_communication(model)
-        total_bytes_sent += total_bytes * (world_size - 1)  # Sent to other processes
-        total_bytes_received += total_bytes * (
-            world_size - 1
-        )  # Received from other processes
+        nbytes = calculate_ddp_communication(model)
+
+        # NCCL and gloo are running ring-all reduce
+        # In ring all-reduce, each node sends/receives 2(n-1)/n times the data
+        # -> bytes sent is typically equal to bytes received
+        if world_size > 1:
+            total_bytes_sent += 2 * nbytes * (world_size - 1) / world_size
+        else:
+            total_bytes_sent += nbytes
+
         real_step = (step + 1) // gradient_accumulation_steps
         step_within_grad_acc = (step + 1) % gradient_accumulation_steps
         if step_within_grad_acc == 0:
@@ -104,7 +107,6 @@ def train(
                     "ddp",
                     None,
                     total_bytes_sent,
-                    total_bytes_received,
                     val_stats,
                     None,
                     per_device_train_batch_size,
