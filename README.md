@@ -57,11 +57,11 @@ The Makefile includes several targets to streamline common development and deplo
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source $HOME/.local/bin/env
 ```
-2. Create, activate, and install dependecies venv
+2. Create venv, activate, and install dependecies including dev and test dependencies
 ```
 uv venv
 source .venv/bin/activate
-uv sync
+uv sync --dev --extra test
 ```
 
 ## Tests
