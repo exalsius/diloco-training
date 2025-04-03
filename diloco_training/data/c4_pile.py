@@ -34,7 +34,7 @@ class StreamingC4Dataset(IterableDataset):
         if split == "validation":
             self.dataset = load_dataset(
                 dataset_name, "en", split=split, streaming=True
-            ).shuffle(buffer_size=10_000)
+            ).shuffle(buffer_size=10000)
         else:
             self.dataset = load_dataset(dataset_name, "en", split=split, streaming=True)
         self.rank = rank
@@ -90,7 +90,6 @@ def get_c4_pile(
     split: str = "train",
     config: Optional[DatasetConfig] = None,
 ):
-
     if config is None:
         config = DatasetConfig()
     # Load the dataset (each process gets its own portion)
@@ -121,7 +120,6 @@ def get_c4_pile(
 
 
 if __name__ == "__main__":
-
     rank, world_size = 0, 2
     train_loader, val_loader = get_c4_pile(rank, world_size, 32)
 

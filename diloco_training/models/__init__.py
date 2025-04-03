@@ -1,3 +1,5 @@
+from typing import Callable, Dict
+
 from .big_gan import get_biggan
 from .gcn import get_gcn
 from .gpt_neo import get_gpt_neo, get_tiny_gpt_neo
@@ -7,7 +9,7 @@ from .wav2vec2 import get_wav2vec2
 
 # from .ppo import get_ppo
 
-MODEL_REGISTRY = {
+MODEL_REGISTRY: Dict[str, Callable] = {
     "resnet50": lambda: get_resnet("resnet50"),
     "resnet101": lambda: get_resnet("resnet101"),
     "wav2vec2": get_wav2vec2,
