@@ -1,6 +1,7 @@
 import argparse
-import logging
+import logging.config
 import os
+from typing import Callable, Optional
 
 import torch
 import torch.distributed as dist
@@ -128,8 +129,11 @@ def train(
 
 def main(args):
     # Parse command-line arguments
-    model_class = MODEL_REGISTRY.get(args.model)
-    get_dataset = DATASET_REGISTRY.get(args.dataset)
+    model_class: Optional[Callable] = MODEL_REGISTRY.get(args.model)
+    assert model_class is not None, f"Model {args.model} not found"
+
+    get_dataset: Optional[Callable] = DATASET_REGISTRY.get(args.dataset)
+    assert get_dataset is not None, f"Dataset {args.dataset} not found"
 
     # Setup distributed training
     master_addr = os.environ["MASTER_ADDR"]
