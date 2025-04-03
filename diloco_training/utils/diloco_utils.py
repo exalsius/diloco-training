@@ -281,7 +281,7 @@ def load_checkpoint(
         logger.info(
             f"No checkpoint found for global rank {global_rank} and local rank {local_rank}, starting from scratch"
         )
-        return 0
+        return 0, None, None, None, None
 
 
 def prepare_batch(batch, device="cuda"):
