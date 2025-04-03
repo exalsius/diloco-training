@@ -42,7 +42,9 @@ def ddp_setup(
         torch.cuda.set_device(local_rank)
 
 
-def wandb_setup(local_rank, user_key, project_name, run_id=None):
+def wandb_setup(
+    local_rank, user_key, project_name, run_id=None, group="diloco_workers"
+):
     if user_key is None:
         os.environ["WANDB_MODE"] = "offline"
         wandb.init(project=project_name)
@@ -50,7 +52,7 @@ def wandb_setup(local_rank, user_key, project_name, run_id=None):
         wandb.login(key=user_key)
         wandb.init(
             project=project_name,
-            group="diloco_workers",
+            group=group,
             name=f"worker-{local_rank}",
             id=run_id,
             resume="allow",

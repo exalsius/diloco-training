@@ -226,6 +226,7 @@ def main(args):
             user_key=args.wandb_user_key,
             project_name=args.wandb_project_name,
             run_id=args.wandb_run_id,
+            group=args.wandb_group,
         )
         logger.info(f"Resuming training from step {START_STEP}")
     else:
@@ -236,6 +237,7 @@ def main(args):
             user_key=args.wandb_user_key,
             project_name=args.wandb_project_name,
             run_id=None,
+            group=args.wandb_group,
         )
     logger.info("Model initialized on rank %s", local_rank)
 
@@ -383,5 +385,12 @@ if __name__ == "__main__":
         default=None,
         help="WandB run ID for resuming or tracking experiments.",
     )
+    parser.add_argument(
+        "--wandb_group",
+        type=str,
+        default=None,
+        help="WandB group for resuming or tracking experiments.",
+    )
+
     args = parser.parse_args()
     main(args)
