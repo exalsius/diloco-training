@@ -115,9 +115,7 @@ class DeMo(torch.optim.SGD):
 
     @torch.no_grad()
     def step(self, closure: Callable | None = None):
-
-        self.data_transmit = 0
-        self.data_receive = 0
+        self.nbytes = 0
 
         for group in self.param_groups:
             lr = group["lr"]
@@ -159,9 +157,9 @@ class DeMo(torch.optim.SGD):
                 )
 
                 # Log I/O data size
-                self.data_transmit += sparse_idx.nbytes + sparse_val.nbytes
+                self.nbytes += sparse_idx.nbytes + sparse_val.nbytes
                 for si, v in zip(sparse_idx_gather, sparse_val_gather):
-                    self.data_receive += si.nbytes + v.nbytes
+                    self.nbytes += si.nbytes + v.nbytes
 
                 # Decode grad from all nodes
                 new_grad = self.transform.decode(

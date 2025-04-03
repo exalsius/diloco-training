@@ -62,7 +62,7 @@ def train(
     model.train()
     loss_batch = 0
     gradient_accumulation_steps = batch_size // per_device_train_batch_size
-    total_bytes_sent, total_bytes_received, sync_count = 0, 0, 0
+    total_bytes_sent, sync_count = 0, 0
     logger.info(f"Gradient accumulation steps: {gradient_accumulation_steps}")
 
     params_offloaded = get_offloaded_param(outer_optimizer, device=device)
@@ -116,7 +116,7 @@ def train(
                     for group in inner_optimizer.param_groups
                     for param in group["params"]
                 ]
-                bytes_sent, bytes_received = update_outer_optimizer(
+                bytes_sent = update_outer_optimizer(
                     params_offloaded,
                     main_param,
                     optim_method,
@@ -133,7 +133,6 @@ def train(
 
                 # Update the total bytes sent and received
                 total_bytes_sent += bytes_sent
-                total_bytes_received += bytes_received
                 sync_count += 1
 
             if real_step % checkpoint_interval == 0:
@@ -150,7 +149,6 @@ def train(
                     optim_method,
                     sync_count,
                     total_bytes_sent,
-                    total_bytes_received,
                     val_stats,
                     local_steps,
                     per_device_train_batch_size,

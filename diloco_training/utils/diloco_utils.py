@@ -194,14 +194,12 @@ def log_stats(
     optim_method,
     sync_count,
     total_bytes_sent,
-    total_bytes_received,
     val_stats,
     local_steps,
     per_device_train_batch_size,
 ):
     if local_rank == 0:
         total_mb_sent = total_bytes_sent / (1024 * 1024)
-        total_mb_received = total_bytes_received / (1024 * 1024)
         try:
             loss_b = loss_batch.item()
         except AttributeError:
@@ -215,7 +213,6 @@ def log_stats(
             "optim_method": optim_method,
             "sync_count": sync_count,
             "total_bytes_sent_mb": total_mb_sent,
-            "total_bytes_received_mb": total_mb_received,
             "val_stats": val_stats,
             "local_steps": local_steps,
             "batch_size": batch_size,
@@ -314,7 +311,6 @@ def update_outer_optimizer(
     device="cuda",
 ):
     bytes_sent = 0
-    bytes_received = 0
     for param_offloaded, param in zip(params_offloaded, main_param):
         param_offloaded_on_device = param_offloaded.data.to(param.device)
         param.grad = param_offloaded_on_device - param.data
@@ -322,27 +318,41 @@ def update_outer_optimizer(
         op = dist.ReduceOp.AVG if device == "cuda" else dist.ReduceOp.SUM
         if optim_method != "demo":
             is_quantized = optim_method == "sgd_quantized"
-            param_size = param.grad.nbytes
+            nbytes = param.grad.nbytes
+
             if is_quantized:
-                param_size += 8
+                # Assuming 8x compression from quantization
+                # TODO: This needs to be done in distributed_reduce_quantized
+                nbytes = nbytes // 8
+
                 param.grad = distributed_reduce_quantized(param.grad, op=op)
                 if device == "cpu":
                     # Manual averaging after SUM since dist.ReduceOp.AVG is not supported with gloo
                     # and we use dist.ReduceOp.SUM instead
                     param.grad.div_(world_size)
+
             else:
                 dist.all_reduce(param.grad, op=op)
                 # Manual averaging after SUM since dist.ReduceOp.AVG is not supported with gloo
                 # and we use dist.ReduceOp.SUM instead
                 if device == "cpu":
                     param.grad.div_(world_size)
-            bytes_sent += param_size
-            bytes_received += param_size * (world_size - 1)
+
+            # NCCL and gloo are running ring-all reduce
+            # In ring all-reduce, each node sends/receives 2(n-1)/n times the data
+            # -> bytes sent is typically equal to bytes received
+            if world_size > 1:
+                bytes_sent += 2 * nbytes * (world_size - 1) / world_size
+            else:
+                bytes_sent += nbytes
+
             param.data = param_offloaded_on_device
     outer_optimizer.step()
     if optim_method == "demo":
-        bytes_sent = outer_optimizer.data_transmit
-        bytes_received = outer_optimizer.data_receive
+        if world_size > 1:
+            bytes_sent = 2 * outer_optimizer.nbytes * (world_size - 1) / world_size
+        else:
+            bytes_sent = outer_optimizer.nbytes
     outer_optimizer.zero_grad()
 
-    return bytes_sent, bytes_received
+    return bytes_sent
