@@ -12,5 +12,4 @@ wandb/
 .venv
 
 /testdata
-/.vscode
 /wandb
