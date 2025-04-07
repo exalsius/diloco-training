@@ -96,7 +96,7 @@ class ResNetWithLoss(nn.Module):
 
 def get_resnet(
     model_type: str = "resnet50", num_classes: int = 1000, pretrained: bool = False
-) -> ResNetWithLoss:
+):
     """Factory function to create a ResNet model with loss calculation interface.
 
     Args:
@@ -120,7 +120,7 @@ def get_resnet(
             f"Unsupported ResNet model: {model_type}. Choose 'resnet50' or 'resnet101'"
         )
 
-    return ResNetWithLoss(
+    return None, ResNetWithLoss(
         model_type=resnet_type, num_classes=num_classes, pretrained=pretrained
     )
 

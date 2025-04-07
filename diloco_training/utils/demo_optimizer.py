@@ -88,7 +88,11 @@ class DeMo(torch.optim.SGD):
                     state = self._state_parameter(p)
 
                     state["step"] = 0
-                    state["delta"] = torch.zeros_like(p)
+                    p.data, original_shape = _reshape_to_2d(p.data)
+                    p.grad, _ = _reshape_to_2d(p.grad)
+                    state["delta"] = torch.zeros_like(p.data)
+                    p.data = _reshape_back(p.data, original_shape)
+                    p.grad = _reshape_back(p.grad, original_shape)
 
     def _demo_all_gather(self, sparse_idx, sparse_val):
         world_size = (
@@ -124,6 +128,10 @@ class DeMo(torch.optim.SGD):
                     continue
                 state = self._state_parameter(p)
 
+                # Reshape parameter to 2D if necessary
+                p_data_2d, original_shape = _reshape_to_2d(p.data)
+                grad_2d, _ = _reshape_to_2d(p.grad)
+
                 # Update step
                 state["step"] += 1
 
@@ -136,7 +144,7 @@ class DeMo(torch.optim.SGD):
                     state["delta"].mul_(self.compression_decay)
 
                 # Add delta to new gradient
-                state["delta"].add_(p.grad, alpha=lr)
+                state["delta"].add_(grad_2d, alpha=lr)
 
                 # Compress delta
                 sparse_idx, sparse_val, xshape, totalk = self.compress.compress(
@@ -164,9 +172,10 @@ class DeMo(torch.optim.SGD):
                 # Decode grad from all nodes
                 new_grad = self.transform.decode(
                     self.compress.batch_decompress(
-                        p, sparse_idx_gather, sparse_val_gather, xshape, totalk
+                        p_data_2d, sparse_idx_gather, sparse_val_gather, xshape, totalk
                     )
                 )
+                new_grad = _reshape_back(new_grad, original_shape)
 
                 # Set grad to values
                 if p.grad is None:
@@ -194,6 +203,8 @@ class TransformDCT:
         # Generate all possible valid DCT sizes for model tensors
         for group in param_groups:
             for p in group["params"]:
+                p.data, original_shape = _reshape_to_2d(p.data)
+                p.grad, _ = _reshape_to_2d(p.grad)
                 if not p.requires_grad:
                     continue
                 for s in p.shape:
@@ -210,6 +221,8 @@ class TransformDCT:
                         self.b_dict[sc] = (
                             _idct(identity, norm=norm).to(p.dtype).to(p.device)
                         )
+                p.data = _reshape_back(p.data, original_shape)
+                p.grad = _reshape_back(p.grad, original_shape)
 
     @torch.no_grad()
     def einsum_2d(self, x, b, d=None):
@@ -469,3 +482,22 @@ def _get_smaller_split(n, close_to):
                 return val
             return all_divisors[ix - 1]
     return n
+
+
+def _reshape_to_2d(tensor):
+    """Reshape tensor to 2D if it has more than 2 dimensions."""
+    if tensor is None:
+        return None, None
+    original_shape = tensor.shape
+    if len(original_shape) > 2:
+        tensor = tensor.view(original_shape[0], -1)
+    return tensor, original_shape
+
+
+def _reshape_back(tensor, original_shape):
+    if tensor is None:
+        return None
+    """Reshape tensor back to its original shape."""
+    if len(original_shape) > 2:
+        tensor = tensor.view(original_shape)
+    return tensor
