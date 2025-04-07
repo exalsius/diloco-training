@@ -105,7 +105,7 @@ def get_c4_pile(
         collate_fn=data_collator,
     )
 
-    dataset = StreamingC4Dataset("c4", 0, 1, split)
+    dataset = StreamingC4Dataset("c4", 0, 1, "validation")
 
     # Define Dataloader
     tokenizer = create_tokenizer(config)

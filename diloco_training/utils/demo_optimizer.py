@@ -175,7 +175,7 @@ class DeMo(torch.optim.SGD):
                     p.grad.copy_(new_grad)
 
                 # Sign-SGD
-                p.grad.sign_()
+                # p.grad.sign_()
 
         # SGD step
         return super().step(closure)
