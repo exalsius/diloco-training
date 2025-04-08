@@ -10,43 +10,6 @@ import torchvision.transforms as transforms
 from datasets import load_dataset
 from torch.utils.data import DataLoader, IterableDataset
 
-# class HuggingFaceDataset(Dataset):
-#     """Wrapper for HuggingFace datasets to make them compatible with PyTorch DataLoader."""
-
-#     def __init__(self, hf_dataset: Any, transform: Optional[transforms.Compose] = None):
-#         """
-#         Initialize the dataset wrapper.
-
-#         Args:
-#             hf_dataset: HuggingFace dataset to wrap
-#             transform: Torchvision transforms to apply to images
-#         """
-#         self.hf_dataset = hf_dataset
-#         self.transform = transform
-
-#     def __len__(self) -> int:
-#         """Return the number of samples in the dataset."""
-#         return len(self.hf_dataset)
-
-#     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-#         """
-#         Get a sample from the dataset.
-
-#         Args:
-#             idx: Index of the sample to get
-
-#         Returns:
-#             Dict containing the image and label tensors
-#         """
-#         item = self.hf_dataset[idx]
-#         image = item["image"]
-
-#         if self.transform:
-#             image = self.transform(image)
-
-#         label = torch.tensor(item["label"], dtype=torch.long)
-#         return {"image": image, "label": label}
-
 
 class StreamingImageNetDataset(IterableDataset):
     """Streaming ImageNet dataset for distributed training."""
@@ -66,7 +29,7 @@ class StreamingImageNetDataset(IterableDataset):
         if split == "validation":
             self.dataset = load_dataset(
                 dataset_name, split=split, streaming=True
-            ).shuffle(buffer_size=10_000)
+            ).shuffle(buffer_size=10000)
         else:
             # For training, we don't shuffle
             self.dataset = load_dataset(dataset_name, split=split, streaming=True)
