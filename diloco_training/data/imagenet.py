@@ -3,51 +3,53 @@ ImageNet dataset module for loading and processing ImageNet data.
 Provides utilities for distributed training and data transformation.
 """
 
-from typing import Any, Dict, Optional, Tuple
+from itertools import islice
 
 import torch
 import torchvision.transforms as transforms
 from datasets import load_dataset
-from datasets.distributed import split_dataset_by_node
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, IterableDataset
 
 
-class HuggingFaceDataset(Dataset):
-    """Wrapper for HuggingFace datasets to make them compatible with PyTorch DataLoader."""
+class StreamingImageNetDataset(IterableDataset):
+    """Streaming ImageNet dataset for distributed training."""
 
-    def __init__(self, hf_dataset: Any, transform: Optional[transforms.Compose] = None):
+    def __init__(
+        self, dataset_name: str, rank: int, world_size: int, split: str = "train"
+    ):
         """
-        Initialize the dataset wrapper.
+        Initialize the streaming dataset.
 
         Args:
-            hf_dataset: HuggingFace dataset to wrap
-            transform: Torchvision transforms to apply to images
+            dataset_name: HuggingFace dataset name
+            rank: Rank of the current process
+            world_size: Total number of processes
+            split: Dataset split to use ('train' or 'validation')
         """
-        self.hf_dataset = hf_dataset
-        self.transform = transform
+        if split == "validation":
+            self.dataset = load_dataset(
+                dataset_name, split=split, streaming=True
+            ).shuffle(buffer_size=10000)
+        else:
+            # For training, we don't shuffle
+            self.dataset = load_dataset(dataset_name, split=split, streaming=True)
+        self.rank = rank
+        self.world_size = world_size
+        self.transform = create_imagenet_transforms()
 
-    def __len__(self) -> int:
-        """Return the number of samples in the dataset."""
-        return len(self.hf_dataset)
-
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+    def __iter__(self):
         """
-        Get a sample from the dataset.
+        Iterate over the dataset, partitioned for distributed training.
 
-        Args:
-            idx: Index of the sample to get
-
-        Returns:
-            Dict containing the image and label tensors
+        Yields:
+            Samples from the dataset
         """
-        item = self.hf_dataset[idx]
-        image = item["image"]
-
-        if self.transform:
-            image = self.transform(image)
-
-        label = torch.tensor(item["label"], dtype=torch.long)
-        return {"image": image, "label": label}
+        iterator = iter(self.dataset)
+        batch = islice(iterator, self.rank, None, self.world_size)
+        for item in batch:
+            image = self.transform(item["image"])
+            label = torch.tensor(item["label"], dtype=torch.long)
+            yield {"image": image, "label": label}
 
 
 def create_imagenet_transforms(image_size: int = 64) -> transforms.Compose:
@@ -63,6 +65,9 @@ def create_imagenet_transforms(image_size: int = 64) -> transforms.Compose:
     return transforms.Compose(
         [
             transforms.Resize([image_size, image_size]),
+            transforms.Lambda(
+                lambda img: img.convert("RGB") if img.mode != "RGB" else img
+            ),  # Ensure 3 channels
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
@@ -74,12 +79,9 @@ def get_imagenet(
     local_rank: int,
     per_device_train_batch_size: int,
     split: str = "train",
-    num_samples: Optional[int] = 100,
     image_size: int = 64,
-    dataset_name: str = "zh-plus/tiny-imagenet",
-    shuffle: bool = True,
-    num_workers: int = 4,
-) -> Tuple[Dataset, DataLoader]:
+    dataset_name: str = "imagenet-1k",
+):
     """
     Load and prepare ImageNet dataset for training or evaluation.
 
@@ -88,63 +90,47 @@ def get_imagenet(
         local_rank: Rank of current process
         per_device_train_batch_size: Batch size per device
         split: Dataset split to use ('train' or 'validation')
-        num_samples: Number of samples to select (None for all)
         image_size: Size to resize images to
         dataset_name: HuggingFace dataset name
         shuffle: Whether to shuffle the data
         num_workers: Number of worker processes for data loading
 
     Returns:
-        Tuple of (dataset, dataloader)
+        DataLoader for the dataset
     """
     # Create transforms
-    transform = create_imagenet_transforms(image_size)
 
-    # Load dataset
-    try:
-        dataset = load_dataset(dataset_name, split=split)
-        if num_samples is not None:
-            dataset = dataset.select(range(num_samples))
-    except Exception as e:
-        raise RuntimeError(f"Failed to load dataset '{dataset_name}': {e}")
+    # Load streaming dataset
+    dataset = StreamingImageNetDataset(dataset_name, local_rank, world_size, split)
 
-    # Split dataset across nodes for distributed training
-    if world_size > 1:
-        dataset = split_dataset_by_node(dataset, rank=local_rank, world_size=world_size)
-
-    # Convert to PyTorch dataset
-    torch_dataset = HuggingFaceDataset(dataset, transform)
+    # Wrap with HuggingFaceDataset for PyTorch compatibility
+    # torch_dataset = HuggingFaceDataset(dataset, transform)
 
     # Create DataLoader
-    dataloader = DataLoader(
-        torch_dataset,
+    train_loader = DataLoader(
+        dataset,
         batch_size=per_device_train_batch_size,
-        shuffle=shuffle,
-        num_workers=num_workers,
-        pin_memory=True,
     )
 
-    return torch_dataset, dataloader
+    # Create validation dataset (for simplicity, using the same dataset)
+    val_dataset = StreamingImageNetDataset(dataset_name, 0, 1, "validation")
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=per_device_train_batch_size,
+    )
+
+    return train_loader, val_loader
 
 
 if __name__ == "__main__":
-    # Example usage
-    dataset, dataloader = get_imagenet(
-        world_size=1,
-        local_rank=0,
-        per_device_train_batch_size=32,
-        num_samples=100,
+
+    rank, world_size = 0, 2
+    train_loader, val_loader = get_imagenet(
+        world_size=world_size, local_rank=rank, per_device_train_batch_size=32
     )
 
-    print(f"Dataset length: {len(dataset)}")
-    print(f"Dataloader length: {len(dataloader)}")
-    print(f"Dataloader batch size: {dataloader.batch_size}")
-
-    # Verify data loading works
-    try:
-        for step, batch in enumerate(dataloader):
-            print(f"Batch shape: {batch['image'].shape}")
-            print(f"Label shape: {batch['label'].shape}")
-            break
-    except Exception as e:
-        print(f"Error loading batch: {e}")
+    count = 0
+    for batch in val_loader:
+        count += 1
+        if count % 10 == 0:
+            print(count)
