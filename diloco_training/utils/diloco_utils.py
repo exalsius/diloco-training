@@ -1,5 +1,6 @@
 import logging
 import logging.config
+import math
 import os
 import time
 from datetime import timedelta
@@ -133,6 +134,37 @@ def initialize_model(model_class, device, optim_method=None, local_rank=None):
     else:
         model = DDP(model, device_ids=[local_rank] if device == "cuda" else None)
     return config, model
+
+
+def cosine_schedule_inverse_with_warmup(
+    local_steps, target_steps, warmup_steps, total_steps
+):
+    """
+    Generates a schedule that starts with a fixed value during warmup and then increases
+    using an inverse cosine schedule.
+
+    Args:
+        local_steps (int): Fixed value during warmup.
+        target_steps (int): Target value after warmup.
+        warmup_steps (int): Number of warm-up steps.
+        total_steps (int): Total number of training steps.
+
+    Returns:
+        list: A list of values for each step.
+    """
+    schedule = []
+    for step in range(total_steps):
+        if step < warmup_steps:
+            # Fixed value during warm-up phase
+            value = local_steps
+        else:
+            # Inverse cosine increase phase
+            progress = (step - warmup_steps) / (total_steps - warmup_steps)
+            value = local_steps + (target_steps - local_steps) * 0.5 * (
+                1 - math.cos(math.pi * progress)
+            )
+        schedule.append(int(value))
+    return schedule
 
 
 def get_optimizers(model, lr, outer_lr, optim_method="demo"):

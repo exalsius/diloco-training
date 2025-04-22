@@ -16,6 +16,7 @@ from diloco_training.utils.args_types import (
 )
 from diloco_training.utils.diloco_utils import (
     compute_l2_norm,
+    cosine_schedule_inverse_with_warmup,
     ddp_setup,
     evaluate_model,
     forward_and_compute_loss,
@@ -58,6 +59,7 @@ def train(
     dataset_name="dataset",
     device="cuda",
     start_step=0,
+    warmup_steps=1000,
 ):
     model.train()
     loss_batch = 0
@@ -69,6 +71,15 @@ def train(
     reference_params = [
         param.clone().detach() for param in model.parameters()
     ]  # Initialize reference parameters
+
+    if optim_method == "demo":
+        local_steps_scheduler = cosine_schedule_inverse_with_warmup(
+            local_steps, local_steps * 4, warmup_steps, total_steps
+        )
+    else:
+        local_steps_scheduler = cosine_schedule_inverse_with_warmup(
+            local_steps, local_steps, warmup_steps, total_steps
+        )
 
     for step, batch in enumerate(train_dataloader):
         if step < start_step:
@@ -106,7 +117,7 @@ def train(
                 normalized_l2_norm,
             )
 
-            if real_step % local_steps == 0:
+            if real_step % local_steps_scheduler[real_step - 1] == 0:
                 logger.info(
                     f"Local rank {local_rank} - Syncing outer optimizer at step {real_step}"
                 )
@@ -167,8 +178,7 @@ def train(
                     optim_method,
                 )
             loss_batch = 0
-
-        if total_steps != -1 and total_steps < (real_step * world_size):
+        if total_steps != -1 and total_steps <= (real_step * world_size):
             # TODO: final outer optimizer sync needed
             break
 
@@ -280,6 +290,7 @@ def main(args):
         dataset_name=args.dataset,
         device=args.device,
         start_step=START_STEP,
+        warmup_steps=args.warmup_steps,
     )
 
     wandb.finish()
