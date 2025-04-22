@@ -44,3 +44,8 @@ packages = ["diloco_training"]
 testpaths = "tests"
 python_files = "test_*.py"
 pythonpath = ["."]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]

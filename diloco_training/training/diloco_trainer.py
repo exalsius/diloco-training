@@ -71,9 +71,15 @@ def train(
     reference_params = [
         param.clone().detach() for param in model.parameters()
     ]  # Initialize reference parameters
-    local_steps_scheduler = cosine_schedule_inverse_with_warmup(
-        local_steps, local_steps * 4, warmup_steps, total_steps
-    )
+
+    if optim_method == "demo":
+        local_steps_scheduler = cosine_schedule_inverse_with_warmup(
+            local_steps, local_steps * 4, warmup_steps, total_steps
+        )
+    else:
+        local_steps_scheduler = cosine_schedule_inverse_with_warmup(
+            local_steps, local_steps, warmup_steps, total_steps
+        )
 
     for step, batch in enumerate(train_dataloader):
         if step < start_step:
@@ -110,10 +116,8 @@ def train(
                 l2_norm,
                 normalized_l2_norm,
             )
-            print(
-                f"Real step: {real_step}, Local steps scheduler: {local_steps_scheduler[real_step]}"
-            )
-            if real_step % local_steps_scheduler[real_step] == 0:
+
+            if real_step % local_steps_scheduler[real_step - 1] == 0:
                 logger.info(
                     f"Local rank {local_rank} - Syncing outer optimizer at step {real_step}"
                 )
@@ -174,8 +178,7 @@ def train(
                     optim_method,
                 )
             loss_batch = 0
-
-        if total_steps != -1 and total_steps < (real_step * world_size):
+        if total_steps != -1 and total_steps <= (real_step * world_size):
             # TODO: final outer optimizer sync needed
             break
 
