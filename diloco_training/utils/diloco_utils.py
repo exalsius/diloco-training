@@ -219,7 +219,7 @@ def log_inner_stats(
 
 def log_stats(
     local_rank,
-    effective_step,
+    real_step,
     loss_batch,
     world_size,
     batch_size,
