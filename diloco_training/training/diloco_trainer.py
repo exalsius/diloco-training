@@ -74,11 +74,11 @@ def train(
 
     if optim_method == "demo":
         local_steps_scheduler = cosine_schedule_inverse_with_warmup(
-            local_steps, local_steps * 4, warmup_steps, total_steps
+            local_steps, local_steps * 4, warmup_steps, total_steps // world_size
         )
     else:
         local_steps_scheduler = cosine_schedule_inverse_with_warmup(
-            local_steps, local_steps, warmup_steps, total_steps
+            local_steps, local_steps, warmup_steps, total_steps // world_size
         )
 
     for step, batch in enumerate(train_dataloader):
@@ -98,7 +98,7 @@ def train(
 
         if step_within_grad_acc == 0:
             logger.info(
-                f"Local rank {local_rank} - Total Step {(step + 1) * world_size / gradient_accumulation_steps} - Loss: {loss_batch.item()}"
+                f"Rank {local_rank} - Real step {real_step} - Loss: {loss_batch.item()}"
             )
             update_inner_optimizer(inner_optimizer, scheduler, model)
 
@@ -153,7 +153,7 @@ def train(
                 dist.barrier()
                 log_stats(
                     local_rank,
-                    (step + 1) // gradient_accumulation_steps,
+                    real_step,
                     loss_batch,
                     world_size,
                     batch_size,
