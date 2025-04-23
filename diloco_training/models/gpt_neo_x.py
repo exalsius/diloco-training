@@ -19,7 +19,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "num_attention_heads": 16,
     "intermediate_size": 896,
     "torch_dtype": "bfloat16",
-    "attn_implementation": "flash_attention_2"
+    "attn_implementation": "flash_attention_2",
 }
 TINY_LLAMA_CONFIG: Dict[str, Any] = {
     "vocab_size": 100,
