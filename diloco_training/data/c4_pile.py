@@ -103,6 +103,8 @@ def get_c4_pile(
         dataset,
         batch_size=per_device_train_batch_size,
         collate_fn=data_collator,
+        num_workers=8,
+        pin_memory=True,
     )
 
     dataset = StreamingC4Dataset("c4", 0, 1, "validation")
@@ -115,16 +117,26 @@ def get_c4_pile(
         dataset,
         batch_size=per_device_train_batch_size,
         collate_fn=data_collator,
+        num_workers=8,
+        pin_memory=True,
     )
     return train_loader, val_loader
 
 
 if __name__ == "__main__":
     rank, world_size = 0, 2
-    train_loader, val_loader = get_c4_pile(rank, world_size, 32)
-
+    train_loader, val_loader = get_c4_pile(rank, world_size, 16)
+    import time
     count = 0
     for batch in val_loader:
+        stime = time.time()
+        print(batch.keys())
+        batch['input_ids'] = batch['input_ids'].to(rank)
+        batch['labels'] = batch['labels'].to(rank)
+        batch['attention_mask'] = batch['attention_mask'].to(rank)
+        print(batch['input_ids'].device)
+        etime = time.time()
+        print(f"Time taken: {etime - stime:.4f} seconds")
         count += 1
         if count % 10000 == 0:
             print(count)
