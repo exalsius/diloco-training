@@ -53,7 +53,7 @@ def wandb_setup(
         wandb.init(
             project=project_name,
             group=group,
-            name=f"worker-{local_rank}",
+            name=f"{group}-worker-{local_rank}",
             id=run_id,
             resume="allow",
         )
