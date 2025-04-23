@@ -238,10 +238,10 @@ def log_stats(
             loss_b = loss_batch
         dict_to_log = {
             "Loss": loss_b,
-            "real_step": effective_step,
+            "real_step": real_step,
             "Perplexity": torch.exp(loss_batch).item(),
-            "total_steps_all_workers": effective_step * world_size,
-            "total_samples_all_workers": effective_step * batch_size * world_size,
+            "total_steps_all_workers": real_step * world_size,
+            "total_samples_all_workers": real_step * batch_size * world_size,
             "optim_method": optim_method,
             "sync_count": sync_count,
             "total_bytes_sent_mb": total_mb_sent,
