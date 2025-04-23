@@ -197,7 +197,7 @@ def train(
 
         if total_steps != -1 and total_steps <= real_step:
             logger.info(
-                    f"Performing one final sync of the outer optimizer at step {real_step}"
+                    f"Performing final sync of the outer optimizer at step {real_step}"
                 )
             main_param = [
                     param
