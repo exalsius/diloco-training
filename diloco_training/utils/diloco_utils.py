@@ -7,6 +7,7 @@ from datetime import timedelta
 
 import torch
 import torch.distributed as dist
+from torch.amp import autocast
 
 import wandb
 from diloco_training.utils.demo_optimizer import DeMo
@@ -93,20 +94,21 @@ def get_offloaded_param(outer_optimizer: torch.optim.Optimizer, device="cuda"):
         ]
 
 
-def evaluate_model(eval_dataloader, model, global_rank, local_rank):
+def evaluate_model(eval_dataloader, model, global_rank, local_rank, device):
     if global_rank == 0 and local_rank == 0:
         logger.info("Starting evaluation...")
         loss_eval: float = 0.0
         step_eval: int = 0
         eval_start_time = time.time()
+        model.eval()
+
         for step, batch_eval in enumerate(eval_dataloader):
             for key in batch_eval.keys():
-                batch_eval[key] = batch_eval[key].to("cuda")
-
+                batch_eval[key] = batch_eval[key].to(device)
             with torch.no_grad():
-                model.eval()
-                outputs = model(**batch_eval)
-                loss_eval += outputs.loss
+                with autocast(device_type=device, dtype=torch.bfloat16):
+                    outputs = model(**batch_eval)
+                    loss_eval += outputs.loss
             step_eval += 1
             if step >= 1000:
                 break

@@ -168,7 +168,7 @@ def train(
             if real_step % checkpoint_interval == 0:
                 # Measure time for checkpointing
                 val_stats = evaluate_model(
-                    val_dataloader, model, local_rank, global_rank
+                    val_dataloader, model, local_rank, global_rank, device
                 )
                 dist.barrier()
                 log_stats(
@@ -198,7 +198,7 @@ def train(
                     optim_method,
                 )
 
-            loss_batch = 0
+            loss_batch = 0 if total_steps > real_step else loss_batch
 
         if total_steps != -1 and total_steps <= real_step:
             logger.info(
@@ -225,6 +225,37 @@ def train(
             # Update the total bytes sent and received
             total_bytes_sent += bytes_sent
             sync_count += 1
+
+            val_stats = evaluate_model(
+                val_dataloader, model, local_rank, global_rank, device
+            )
+            dist.barrier()
+            log_stats(
+                local_rank,
+                real_step,
+                loss_batch,
+                world_size,
+                batch_size,
+                optim_method,
+                sync_count,
+                total_bytes_sent,
+                val_stats,
+                local_steps,
+                per_device_train_batch_size,
+            )
+            save_checkpoint(
+                model,
+                inner_optimizer,
+                outer_optimizer,
+                scheduler,
+                step,
+                checkpoint_path,
+                local_rank,
+                global_rank,
+                model_name,
+                dataset_name,
+                optim_method,
+            )
             break
 
 
