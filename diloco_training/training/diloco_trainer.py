@@ -74,7 +74,7 @@ def train(
         param.clone().detach() for param in model.parameters()
     ]  # Initialize reference parameters
 
-    scaler = GradScaler(device=local_rank)  # Initialize GradScaler for mixed precision training
+    scaler = GradScaler(device=device)  # Initialize GradScaler for mixed precision training
 
     if optim_method == "demo":
         local_steps_scheduler = cosine_schedule_inverse_with_warmup(
@@ -97,10 +97,10 @@ def train(
         step_within_grad_acc = (step + 1) % gradient_accumulation_steps
 
         # Measure time for preparing the batch
-        batch = prepare_batch(batch, device=local_rank)
+        batch = prepare_batch(batch, device=device)
     
         # Measure time for forward pass and loss computation
-        with autocast(device_type="cuda", dtype=torch.bfloat16):  # Enable mixed precision for forward pass
+        with autocast(device_type=device, dtype=torch.bfloat16 if device=="cuda" else torch.float16):  # Enable mixed precision for forward pass
             loss = forward_and_compute_loss(model, batch, gradient_accumulation_steps)
         loss_batch += loss.detach()
 

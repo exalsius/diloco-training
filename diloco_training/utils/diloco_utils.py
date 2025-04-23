@@ -126,7 +126,7 @@ def evaluate_model(eval_dataloader, model, global_rank, local_rank):
 
 def initialize_model(model_class, device, optim_method=None, local_rank=None):
     config, model = model_class()
-    model = model.to(local_rank)
+    model = model.to(device)
 
     # if optim_method is None:
     for param in model.parameters():
