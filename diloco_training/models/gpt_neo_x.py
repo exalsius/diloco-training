@@ -18,6 +18,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "num_hidden_layers": 3,
     "num_attention_heads": 16,
     "intermediate_size": 896,
+    "torch_dtype": "bfloat16",
+    "attn_implementation": "flash_attention_2",
 }
 TINY_LLAMA_CONFIG: Dict[str, Any] = {
     "vocab_size": 100,
@@ -85,7 +87,7 @@ def get_gpt_neo_x(
     if config_overrides:
         config_params.update(config_overrides)
 
-    logger.info(f"Creating Llama with custom configuration: {config_params}")
+    logger.info(f"Creating GPT Neo X with custom configuration: {config_params}")
     config = GPTNeoXConfig(**config_params)
     model = GPTNeoXForCausalLM(config)
     return config, model
@@ -102,4 +104,8 @@ if __name__ == "__main__":
     config, model = get_gpt_neo_x()
     print(config)
     print(model)
-    print(f"Total parameters: {sum(p.numel() for p in model.parameters())}")
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Total parameters: {total_params}")
+    print(f"Trainable parameters: {trainable_params}")
+    print(f"Non-trainable parameters: {total_params - trainable_params}")

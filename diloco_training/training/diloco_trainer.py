@@ -3,7 +3,9 @@ import logging.config
 import os
 from typing import Callable, Optional
 
+import torch
 import torch.distributed as dist
+from torch.amp import GradScaler, autocast
 from transformers import get_cosine_schedule_with_warmup
 
 import wandb
@@ -72,16 +74,21 @@ def train(
         param.clone().detach() for param in model.parameters()
     ]  # Initialize reference parameters
 
+    scaler = GradScaler(
+        device=device
+    )  # Initialize GradScaler for mixed precision training
+
     if optim_method == "demo":
         local_steps_scheduler = cosine_schedule_inverse_with_warmup(
-            local_steps, local_steps * 4, warmup_steps, total_steps // world_size
+            local_steps, local_steps * 4, warmup_steps, total_steps
         )
     else:
         local_steps_scheduler = cosine_schedule_inverse_with_warmup(
-            local_steps, local_steps, warmup_steps, total_steps // world_size
+            local_steps, local_steps, warmup_steps, total_steps
         )
-
+    count_inner_optimizer_steps = 0
     for step, batch in enumerate(train_dataloader):
+
         if step < start_step:
             continue
 
@@ -91,23 +98,34 @@ def train(
         real_step = (step + 1) // gradient_accumulation_steps
         step_within_grad_acc = (step + 1) % gradient_accumulation_steps
 
+        # Measure time for preparing the batch
         batch = prepare_batch(batch, device=device)
-        loss = forward_and_compute_loss(model, batch, gradient_accumulation_steps)
+
+        # Measure time for forward pass and loss computation
+        with autocast(
+            device_type=device,
+            dtype=torch.bfloat16 if device == "cuda" else torch.float16,
+        ):  # Enable mixed precision for forward pass
+            loss = forward_and_compute_loss(model, batch, gradient_accumulation_steps)
         loss_batch += loss.detach()
-        loss.backward()
+
+        # Measure time for backward pass
+        scaler.scale(loss).backward()  # Scale the loss before backward pass
 
         if step_within_grad_acc == 0:
+            # Measure time for optimizer update
             logger.info(
-                f"Rank {local_rank} - Real step {real_step} - Loss: {loss_batch.item()}"
+                f"Local rank {local_rank} - Real Step {real_step} - Loss: {loss_batch.item()}, current step sync interval: {local_steps_scheduler[real_step - 1]}"
             )
-            update_inner_optimizer(inner_optimizer, scheduler, model)
-
-            # Compute and log parameter drift
+            update_inner_optimizer(inner_optimizer, scheduler, model, scaler)
+            count_inner_optimizer_steps += 1
+            # Measure time for parameter drift computation
             current_params = [param.clone().detach() for param in model.parameters()]
             l2_norm = compute_l2_norm(current_params, reference_params, normalize=False)
             normalized_l2_norm = compute_l2_norm(
                 current_params, reference_params, normalize=True
             )
+
             log_inner_stats(
                 local_rank,
                 real_step,
@@ -117,11 +135,12 @@ def train(
                 normalized_l2_norm,
             )
 
-            if real_step % local_steps_scheduler[real_step - 1] == 0:
+            if count_inner_optimizer_steps % local_steps_scheduler[real_step - 1] == 0:
+                count_inner_optimizer_steps = 0
+                # Measure time for outer optimizer sync
                 logger.info(
                     f"Local rank {local_rank} - Syncing outer optimizer at step {real_step}"
                 )
-                # Sync outer optimizer parameters
                 main_param = [
                     param
                     for group in inner_optimizer.param_groups
@@ -147,6 +166,7 @@ def train(
                 sync_count += 1
 
             if real_step % checkpoint_interval == 0:
+                # Measure time for checkpointing
                 val_stats = evaluate_model(
                     val_dataloader, model, local_rank, global_rank
                 )
@@ -177,9 +197,34 @@ def train(
                     dataset_name,
                     optim_method,
                 )
+
             loss_batch = 0
-        if total_steps != -1 and total_steps <= (real_step * world_size):
-            # TODO: final outer optimizer sync needed
+
+        if total_steps != -1 and total_steps <= real_step:
+            logger.info(
+                f"Performing final sync of the outer optimizer at step {real_step}"
+            )
+            main_param = [
+                param
+                for group in inner_optimizer.param_groups
+                for param in group["params"]
+            ]
+            bytes_sent = update_outer_optimizer(
+                params_offloaded,
+                main_param,
+                optim_method,
+                world_size,
+                outer_optimizer,
+                device=device,
+            )
+            params_offloaded = get_offloaded_param(outer_optimizer, device=device)
+
+            # Update reference parameters after outer optimizer sync
+            reference_params = [param.clone().detach() for param in model.parameters()]
+
+            # Update the total bytes sent and received
+            total_bytes_sent += bytes_sent
+            sync_count += 1
             break
 
 
@@ -206,7 +251,9 @@ def main(args):
     get_dataset: Optional[Callable] = DATASET_REGISTRY.get(args.dataset)
     assert get_dataset is not None, f"Dataset {args.dataset} not found"
 
-    model_config, model = initialize_model(model_class, args.device)
+    model_config, model = initialize_model(
+        model_class, args.device, args.optim_method, local_rank
+    )
     inner_optimizer, outer_optimizer = get_optimizers(
         model, lr=args.lr, outer_lr=args.outer_lr, optim_method=args.optim_method
     )

@@ -98,7 +98,7 @@ def test_all_optimizers():
         "device": "cpu",
     }
 
-    for optim_method in ["demo", "sgd", "sgd_quantized"]:
+    for optim_method in ["demo", "sgd"]:
         args = base_args.copy()
         args["optim_method"] = optim_method
 

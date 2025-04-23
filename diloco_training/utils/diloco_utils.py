@@ -7,7 +7,6 @@ from datetime import timedelta
 
 import torch
 import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel as DDP
 
 import wandb
 from diloco_training.utils.demo_optimizer import DeMo
@@ -128,11 +127,11 @@ def initialize_model(model_class, device, optim_method=None, local_rank=None):
     config, model = model_class()
     model = model.to(device)
 
-    if optim_method is None:
-        for param in model.parameters():
-            dist.broadcast(param.data, src=0)
-    else:
-        model = DDP(model, device_ids=[local_rank] if device == "cuda" else None)
+    # if optim_method is None:
+    for param in model.parameters():
+        dist.broadcast(param.data, src=0)
+    # else:
+    #     model = DDP(model, device_ids=[local_rank] if device == "cuda" else None)
     return config, model
 
 
@@ -241,7 +240,7 @@ def log_stats(
             "real_step": real_step,
             "Perplexity": torch.exp(loss_batch).item(),
             "total_steps_all_workers": real_step * world_size,
-            "total_samples": real_step * batch_size * world_size,
+            "total_samples_all_workers": real_step * batch_size * world_size,
             "optim_method": optim_method,
             "sync_count": sync_count,
             "total_bytes_sent_mb": total_mb_sent,
@@ -317,7 +316,7 @@ def load_checkpoint(
 
 def prepare_batch(batch, device="cuda"):
     for key in batch.keys():
-        batch[key] = batch[key].to(device)
+        batch[key] = batch[key].to(device, non_blocking=True)
     return batch
 
 
@@ -327,9 +326,11 @@ def forward_and_compute_loss(model, batch, gradient_accumulation_steps):
     return loss
 
 
-def update_inner_optimizer(inner_optimizer, scheduler, model):
-    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-    inner_optimizer.step()
+def update_inner_optimizer(inner_optimizer, scheduler, model, scaler):
+    scaler.unscale_(optimizer=inner_optimizer)
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)  # gradient clipping
+    scaler.step(optimizer=inner_optimizer)
+    scaler.update()
     scheduler.step()
     inner_optimizer.zero_grad()
 
