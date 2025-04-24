@@ -62,6 +62,7 @@ def train(
     device="cuda",
     start_step=0,
     warmup_steps=1000,
+    metrics=None,
 ):
     model.train()
     loss_batch = 0
@@ -87,6 +88,13 @@ def train(
             local_steps, local_steps, warmup_steps, total_steps
         )
     count_inner_optimizer_steps = 0
+
+    if metrics is not None:
+        real_step = metrics["real_step"]
+        loss_batch = metrics["loss_batch"]
+        sync_count = metrics["sync_count"]
+        total_bytes_sent = metrics["total_bytes_sent"]
+        count_inner_optimizer_steps = metrics["count_inner_optimizer_steps"]
     for step, batch in enumerate(train_dataloader):
 
         if step < start_step:
@@ -184,6 +192,7 @@ def train(
                     local_steps,
                     per_device_train_batch_size,
                 )
+
                 save_checkpoint(
                     model,
                     inner_optimizer,
@@ -196,6 +205,11 @@ def train(
                     model_name,
                     dataset_name,
                     optim_method,
+                    loss_batch,
+                    real_step,
+                    total_bytes_sent,
+                    sync_count,
+                    count_inner_optimizer_steps,
                 )
 
             loss_batch = 0 if total_steps > real_step else loss_batch
@@ -255,6 +269,11 @@ def train(
                 model_name,
                 dataset_name,
                 optim_method,
+                loss_batch,
+                real_step,
+                total_bytes_sent,
+                sync_count,
+                count_inner_optimizer_steps,
             )
             break
 
@@ -296,8 +315,9 @@ def main(args):
 
     # Load checkpoint if it exists
     START_STEP = 0
+    metrics = None
     if os.path.exists(args.checkpoint_path):
-        START_STEP, model, inner_optimizer, outer_optimizer, scheduler = (
+        START_STEP, model, inner_optimizer, outer_optimizer, scheduler, metrics = (
             load_checkpoint(
                 model,
                 inner_optimizer,
@@ -315,7 +335,7 @@ def main(args):
             local_rank=local_rank,
             user_key=args.wandb_user_key,
             project_name=args.wandb_project_name,
-            run_id=args.wandb_run_id,
+            run_id=args.wandb_run_id.split(","),
             group=args.wandb_group,
         )
         logger.info(f"Resuming training from step {START_STEP}")
@@ -330,7 +350,6 @@ def main(args):
             group=args.wandb_group,
         )
     logger.info("Model initialized on rank %s", local_rank)
-
     # Load dataset
     if args.dataset == "test_squence_dataset":
         _, train_dataloader = get_dataset(
@@ -369,6 +388,7 @@ def main(args):
         device=args.device,
         start_step=START_STEP,
         warmup_steps=args.warmup_steps,
+        metrics=metrics,
     )
 
     wandb.finish()

@@ -55,7 +55,7 @@ def wandb_setup(
             project=project_name,
             group=group,
             name=f"{group}-worker-{local_rank}",
-            id=run_id,
+            id=run_id[local_rank] if run_id else None,
             resume="allow",
         )
 
@@ -267,6 +267,11 @@ def save_checkpoint(
     model_name,
     dataset_name,
     optim_method,
+    loss_batch,
+    real_step,
+    total_mb_sent,
+    sync_count,
+    count_inner_optimizer_steps,
 ):
     checkpoint = {
         "model_state_dict": model.state_dict(),
@@ -277,6 +282,11 @@ def save_checkpoint(
         "scheduler_state_dict": scheduler.state_dict(),
         "step": step,
         "optim_method": optim_method,
+        "real_step": real_step,
+        "loss_batch": loss_batch,
+        "total_mb_sent": total_mb_sent,
+        "sync_count": sync_count,
+        "count_inner_optimizer_steps": count_inner_optimizer_steps,
     }
     checkpoint_file = f"{checkpoint_path}_{model_name}_{dataset_name}_node_{global_rank}_rank_{local_rank}_optim_{optim_method}.pth"
     torch.save(checkpoint, checkpoint_file)
@@ -297,23 +307,42 @@ def load_checkpoint(
     dataset_name,
     optim_method,
 ):
-    checkpoint_file = f"{checkpoint_path}_{model_name}_{dataset_name}_node_{global_rank}_rank_{local_rank}_optim_{optim_method}.pth"
+    checkpoint_file = f"{checkpoint_path.split(".")[0]}.pth_{model_name}_{dataset_name}_node_{global_rank}_rank_{local_rank}_optim_{optim_method}.pth"
     if os.path.isfile(checkpoint_file):
         checkpoint = torch.load(checkpoint_file)
         model.load_state_dict(checkpoint["model_state_dict"])
         inner_optimizer.load_state_dict(checkpoint["inner_optimizer_state_dict"])
         outer_optimizer.load_state_dict(checkpoint["outer_optimizer_state_dict"])
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-        step = checkpoint["step"]
+        step = checkpoint["step"] + 1
+        loss_batch = checkpoint["loss_batch"]
+        real_step = checkpoint["real_step"]
+        total_bytes_sent = checkpoint["total_mb_sent"]
+        sync_count = checkpoint["sync_count"]
+        count_inner_optimizer_steps = checkpoint["count_inner_optimizer_steps"]
+
         logger.info(
             f"Checkpoint loaded from step {step} for global rank {global_rank} and local rank {local_rank}"
         )
-        return step, model, inner_optimizer, outer_optimizer, scheduler
+        return (
+            step,
+            model,
+            inner_optimizer,
+            outer_optimizer,
+            scheduler,
+            {
+                "loss_batch": loss_batch,
+                "real_step": real_step,
+                "total_bytes_sent": total_bytes_sent,
+                "sync_count": sync_count,
+                "count_inner_optimizer_steps": count_inner_optimizer_steps,
+            },
+        )
     else:
         logger.info(
             f"No checkpoint found for global rank {global_rank} and local rank {local_rank}, starting from scratch"
         )
-        return 0, None, None, None, None
+        return 0, None, None, None, None, None
 
 
 def prepare_batch(batch, device="cuda"):
