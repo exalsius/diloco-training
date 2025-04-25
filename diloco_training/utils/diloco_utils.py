@@ -173,11 +173,7 @@ def get_optimizers(model, lr, outer_lr, optim_method="demo"):
         model.parameters(), weight_decay=0.1, lr=lr, betas=(0.9, 0.95)
     )
 
-    optimizer_config = {
-        "params": model.parameters(),
-        "lr": outer_lr,
-        "weight_decay": 0.1,
-    }
+    optimizer_config = {"params": model.parameters(), "lr": outer_lr}
 
     if optim_method == "demo":
         optimizer_config.update(
