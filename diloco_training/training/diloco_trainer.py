@@ -115,7 +115,7 @@ def train(
             dtype=torch.bfloat16 if device == "cuda" else torch.float16,
         ):  # Enable mixed precision for forward pass
             loss = forward_and_compute_loss(model, batch, gradient_accumulation_steps)
-        loss_batch += loss.detach()
+            loss_batch += loss.detach()
 
         # Measure time for backward pass
         scaler.scale(loss).backward()  # Scale the loss before backward pass
