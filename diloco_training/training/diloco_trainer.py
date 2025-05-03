@@ -30,10 +30,10 @@ from diloco_training.utils.diloco_utils import (
     log_stats,
     prepare_batch,
     save_checkpoint,
+    synchronize_batch_and_steps,
     update_inner_optimizer,
     update_outer_optimizer,
     wandb_setup,
-    synchronize_batch_and_steps
 )
 from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
 
@@ -64,7 +64,7 @@ def train(
     start_step=0,
     warmup_steps=1000,
     metrics=None,
-    profile=False
+    profile=False,
 ):
     model.train()
     loss_batch = 0
@@ -176,7 +176,7 @@ def train(
                 total_bytes_sent += bytes_sent
                 sync_count += 1
 
-            if real_step % checkpoint_interval == 0 and profile == False:
+            if real_step % checkpoint_interval == 0 and not profile:
                 # Measure time for checkpointing
                 val_stats = evaluate_model(
                     val_dataloader, model, local_rank, global_rank, device
@@ -243,7 +243,7 @@ def train(
             # Update the total bytes sent and received
             total_bytes_sent += bytes_sent
             sync_count += 1
-            if profile == False:
+            if not profile:
                 val_stats = evaluate_model(
                     val_dataloader, model, local_rank, global_rank, device
                 )
@@ -289,9 +289,9 @@ def main(args):
     local_rank = int(os.environ["LOCAL_RANK"])
     global_rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
-    setattr(args, 'local_rank', local_rank)
-    setattr(args, 'global_rank', global_rank)
-    setattr(args, 'world_size', world_size)
+    setattr(args, "local_rank", local_rank)
+    setattr(args, "global_rank", global_rank)
+    setattr(args, "world_size", world_size)
     ddp_setup(
         master_addr=master_addr,
         master_port=master_port,
@@ -374,9 +374,9 @@ def main(args):
     # If GPUs are heterogeneous, we run profiling first:
     if dist.is_initialized() and args.heterogeneous:
         per_device_batch_size, local_steps, all_info = synchronize_batch_and_steps(
-        model_class, get_dataset, args.device, train, args
+            model_class, get_dataset, args.device, train, args
         )
-        logger.info(f"Profiling results: {all_info}, local_steps: {local_steps}")
+        logger.info(f"Profiling results: {all_info}, Local_steps: {local_steps}")
         args.per_device_train_batch_size = per_device_batch_size
         args.local_steps = local_steps
 
@@ -526,5 +526,5 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    
+
     main(args)
