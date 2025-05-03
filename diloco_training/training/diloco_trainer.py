@@ -30,6 +30,7 @@ from diloco_training.utils.diloco_utils import (
     log_stats,
     prepare_batch,
     save_checkpoint,
+    synchronize_batch_and_steps,
     update_inner_optimizer,
     update_outer_optimizer,
     wandb_setup,
@@ -63,6 +64,7 @@ def train(
     start_step=0,
     warmup_steps=1000,
     metrics=None,
+    profile=False,
 ):
     model.train()
     loss_batch = 0
@@ -160,6 +162,7 @@ def train(
                     optim_method,
                     world_size,
                     outer_optimizer,
+                    local_steps,
                     device=device,
                 )
                 params_offloaded = get_offloaded_param(outer_optimizer, device=device)
@@ -173,7 +176,7 @@ def train(
                 total_bytes_sent += bytes_sent
                 sync_count += 1
 
-            if real_step % checkpoint_interval == 0:
+            if real_step % checkpoint_interval == 0 and not profile:
                 # Measure time for checkpointing
                 val_stats = evaluate_model(
                     val_dataloader, model, local_rank, global_rank, device
@@ -229,6 +232,7 @@ def train(
                 optim_method,
                 world_size,
                 outer_optimizer,
+                local_steps,
                 device=device,
             )
             params_offloaded = get_offloaded_param(outer_optimizer, device=device)
@@ -239,42 +243,42 @@ def train(
             # Update the total bytes sent and received
             total_bytes_sent += bytes_sent
             sync_count += 1
-
-            val_stats = evaluate_model(
-                val_dataloader, model, local_rank, global_rank, device
-            )
-            dist.barrier()
-            log_stats(
-                local_rank,
-                real_step,
-                loss_batch,
-                world_size,
-                batch_size,
-                optim_method,
-                sync_count,
-                total_bytes_sent,
-                val_stats,
-                local_steps,
-                per_device_train_batch_size,
-            )
-            save_checkpoint(
-                model,
-                inner_optimizer,
-                outer_optimizer,
-                scheduler,
-                step,
-                checkpoint_path,
-                local_rank,
-                global_rank,
-                model_name,
-                dataset_name,
-                optim_method,
-                loss_batch,
-                real_step,
-                total_bytes_sent,
-                sync_count,
-                count_inner_optimizer_steps,
-            )
+            if not profile:
+                val_stats = evaluate_model(
+                    val_dataloader, model, local_rank, global_rank, device
+                )
+                dist.barrier()
+                log_stats(
+                    local_rank,
+                    real_step,
+                    loss_batch,
+                    world_size,
+                    batch_size,
+                    optim_method,
+                    sync_count,
+                    total_bytes_sent,
+                    val_stats,
+                    local_steps,
+                    per_device_train_batch_size,
+                )
+                save_checkpoint(
+                    model,
+                    inner_optimizer,
+                    outer_optimizer,
+                    scheduler,
+                    step,
+                    checkpoint_path,
+                    local_rank,
+                    global_rank,
+                    model_name,
+                    dataset_name,
+                    optim_method,
+                    loss_batch,
+                    real_step,
+                    total_bytes_sent,
+                    sync_count,
+                    count_inner_optimizer_steps,
+                )
             break
 
 
@@ -285,7 +289,9 @@ def main(args):
     local_rank = int(os.environ["LOCAL_RANK"])
     global_rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
-
+    setattr(args, "local_rank", local_rank)
+    setattr(args, "global_rank", global_rank)
+    setattr(args, "world_size", world_size)
     ddp_setup(
         master_addr=master_addr,
         master_port=master_port,
@@ -365,6 +371,15 @@ def main(args):
 
     logger.info("Dataset initialized on rank %s", local_rank)
 
+    # If GPUs are heterogeneous, we run profiling first:
+    if dist.is_initialized() and args.heterogeneous:
+        per_device_batch_size, local_steps, all_info = synchronize_batch_and_steps(
+            model_class, get_dataset, args.device, train, args
+        )
+        logger.info(f"Profiling results: {all_info}, Local_steps: {local_steps}")
+        args.per_device_train_batch_size = per_device_batch_size
+        args.local_steps = local_steps
+
     # Start training
     train(
         model=model,
@@ -389,6 +404,7 @@ def main(args):
         start_step=START_STEP,
         warmup_steps=args.warmup_steps,
         metrics=metrics,
+        profile=args.heterogeneous,
     )
 
     wandb.finish()
@@ -502,6 +518,13 @@ if __name__ == "__main__":
         default=None,
         help="WandB group for resuming or tracking experiments.",
     )
+    parser.add_argument(
+        "--heterogeneous",
+        type=bool,
+        default=False,
+        help="If GPUs are heterogeneous. we run profiling first",
+    )
 
     args = parser.parse_args()
+
     main(args)
