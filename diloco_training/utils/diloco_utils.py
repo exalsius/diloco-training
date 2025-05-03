@@ -8,6 +8,7 @@ from datetime import timedelta
 import torch
 import torch.distributed as dist
 from torch.amp import autocast
+from transformers import get_cosine_schedule_with_warmup
 
 import wandb
 from diloco_training.utils.demo_optimizer import DeMo
@@ -17,6 +18,114 @@ from diloco_training.utils.quantization import distributed_reduce_quantized
 logging.config.dictConfig(LOG_CONFIG)
 logger = get_logger("diloco_training")
 
+
+# ...existing code...
+
+def make_dummy_dataloader(batch_size, seq_len=1024, vocab_size=32768, device="cuda", num_batches=2):
+    class DummyDataset(torch.utils.data.Dataset):
+        def __len__(self):
+            return num_batches
+        def __getitem__(self, idx):
+            return {"input_ids": torch.randint(0, vocab_size, (seq_len,), device=device)}
+    return torch.utils.data.DataLoader(DummyDataset(), batch_size=batch_size)
+
+def profile_gpu(model_class, get_dataset, device, train_fn, args, max_batch_size=256, seq_len=1024, n_trials=10):
+    # Find max batch size that fits in memory using the real train loop
+    device_batch_size = 8
+    found = 1
+    avg_time = None
+    while device_batch_size <= max_batch_size:
+        try:
+            dummy_dataloader, val_dataloader = get_dataset(
+            1, 0, device_batch_size, split="train"
+            )
+            config, model = model_class()
+            model = model.to(device)
+            # Use dummy optimizer/scheduler
+            inner_optimizer, outer_optimizer = get_optimizers(
+                model, lr=args.lr, outer_lr=args.outer_lr, optim_method=args.optim_method
+            )
+            scheduler = get_cosine_schedule_with_warmup(
+                inner_optimizer,
+                num_warmup_steps=args.warmup_steps,
+                num_training_steps=args.total_steps,
+            )
+            # Call the real train function for a few steps
+            start = time.time()
+            train_fn(
+                model=model,
+                train_dataloader=dummy_dataloader,
+                val_dataloader=dummy_dataloader,
+                inner_optimizer=inner_optimizer,
+                outer_optimizer=outer_optimizer,
+                scheduler=scheduler,
+                local_rank=args.local_rank,
+                global_rank=args.global_rank,
+                world_size=args.world_size,
+                local_steps=n_trials//5,
+                batch_size=args.batch_size,
+                per_device_train_batch_size=device_batch_size,
+                total_steps=n_trials,
+                optim_method=args.optim_method,
+                checkpoint_path="/tmp/dummy.pth",
+                checkpoint_interval=1000,
+                model_name="dummy",
+                dataset_name="dummy",
+                device=device,
+                start_step=0,
+                warmup_steps=args.warmup_steps,
+                metrics=None,
+                profile=True
+            )
+            torch.cuda.synchronize()
+            elapsed = time.time() - start
+            avg_time = elapsed / n_trials
+            found = device_batch_size
+            device_batch_size *= 2
+            del model, dummy_dataloader
+            torch.cuda.empty_cache()
+        except RuntimeError as e:
+            if "out of memory" in str(e):
+                torch.cuda.empty_cache()
+                break
+            else:
+                raise
+    return found, avg_time
+
+def synchronize_batch_and_steps(
+    model_class, get_dataset, device, train_fn, args
+):
+    # Profile each GPU to get its time_per_batch
+    batch_size, time_per_batch = profile_gpu(model_class, get_dataset, device, train_fn, args)
+    world_size = dist.get_world_size()
+    local_info = {'batch_size': batch_size, 'time_per_batch': time_per_batch}
+    all_info = [None for _ in range(world_size)]
+    dist.all_gather_object(all_info, local_info)
+
+    # Find the fastest GPU's time_per_batch
+    min_time_per_batch = min(info['time_per_batch'] for info in all_info)
+    target_sync_time = args.local_steps * min_time_per_batch
+
+    # Compute local_steps for each GPU
+    local_steps_list = []
+    for info in all_info:
+        steps = int(round(target_sync_time / info['time_per_batch']))
+        local_steps_list.append(steps)
+
+    # Group GPUs within 5% of each other's time_per_batch and assign max local_steps in group
+    assigned_steps = None
+    for i, info in enumerate(all_info):
+        # Find all GPUs within 5% of this GPU's time_per_batch
+        group = [
+            j for j, other in enumerate(all_info)
+            if abs(other['time_per_batch'] - info['time_per_batch']) / info['time_per_batch'] <= 0.05
+        ]
+        # Assign the max local_steps in this group
+        group_steps = max(local_steps_list[j] for j in group)
+        if i == dist.get_rank():
+            assigned_steps = group_steps
+
+    return batch_size, assigned_steps, all_info
 
 def ddp_setup(
     master_addr="localhost",
@@ -368,12 +477,17 @@ def update_outer_optimizer(
     optim_method,
     world_size,
     outer_optimizer,
+    local_steps,
     device="cuda",
 ):
     bytes_sent = 0
+    local_steps_list = [0 for _ in range(world_size)]
+    dist.all_gather_object(local_steps_list, local_steps)
+    sum_local_steps = sum(local_steps_list)
+
     for param_offloaded, param in zip(params_offloaded, main_param):
         param_offloaded_on_device = param_offloaded.data.to(param.device)
-        param.grad = param_offloaded_on_device - param.data
+        param.grad = (param_offloaded_on_device - param.data) * (local_steps/(sum_local_steps/world_size))
         # ReduceOp.AVG with Gloo is not supported, so we use SUM instead and manually average later
         op = dist.ReduceOp.AVG if device == "cuda" else dist.ReduceOp.SUM
         if optim_method != "demo":

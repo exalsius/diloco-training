@@ -19,6 +19,7 @@ dependencies = [
     "transformers>=4.49.0",
     "wandb>=0.19.7",
     "matplotlib>=3.10.1",
+    "flash-attn>=2.7.4.post1",
 ]
 
 [project.optional-dependencies]
