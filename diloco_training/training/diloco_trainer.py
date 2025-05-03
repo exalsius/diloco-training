@@ -194,6 +194,7 @@ def train(
                     val_stats,
                     local_steps,
                     per_device_train_batch_size,
+                    args,
                 )
 
                 save_checkpoint(
@@ -260,6 +261,7 @@ def train(
                     val_stats,
                     local_steps,
                     per_device_train_batch_size,
+                    args,
                 )
                 save_checkpoint(
                     model,

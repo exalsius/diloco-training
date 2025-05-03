@@ -30,9 +30,9 @@ class DeMo(torch.optim.SGD):
         super().__init__(
             params,
             foreach=False,
-            momentum=0.9,
+            momentum=0.0,
             dampening=0.0,
-            nesterov=True,
+            nesterov=False,
             maximize=False,
             weight_decay=0.0,
             **kwargs,
