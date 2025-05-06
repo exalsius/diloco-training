@@ -83,7 +83,7 @@ def train(
 
     if optim_method == "demo":
         local_steps_scheduler = cosine_schedule_inverse_with_warmup(
-            local_steps, local_steps * 4, warmup_steps, total_steps
+            local_steps, local_steps, warmup_steps, total_steps
         )
     else:
         local_steps_scheduler = cosine_schedule_inverse_with_warmup(

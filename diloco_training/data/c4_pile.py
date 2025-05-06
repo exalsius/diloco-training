@@ -3,6 +3,7 @@ from itertools import islice
 from typing import Any, Dict, List, Optional
 
 from datasets import load_dataset
+import datasets.config
 from torch.utils.data import DataLoader, IterableDataset
 from transformers import (
     AutoTokenizer,
@@ -10,7 +11,9 @@ from transformers import (
     PreTrainedTokenizer,
     PreTrainedTokenizerFast,
 )
-
+import datasets
+datasets.config.STREAMING_READ_MAX_RETRIES = 60  
+datasets.config.STREAMING_READ_RETRY_INTERVAL = 5  
 
 @dataclass
 class DatasetConfig:
