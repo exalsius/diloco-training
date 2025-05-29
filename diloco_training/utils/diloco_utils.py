@@ -28,7 +28,7 @@ def profile_gpu(
     device,
     train_fn,
     args,
-    max_batch_size=256,
+    max_batch_size=16,
     n_trials=10,
 ):
     # Find max batch size that fits in memory using the real train loop
@@ -77,7 +77,7 @@ def profile_gpu(
                 dataset_name="dummy",
                 device=device,
                 start_step=0,
-                warmup_steps=args.warmup_steps,
+                warmup_steps=n_trials,
                 metrics=None,
                 profile=True,
             )
@@ -117,10 +117,34 @@ def synchronize_batch_and_steps(model_class, get_dataset, device, train_fn, args
         steps = int(round(target_sync_time / info["time_per_batch"]))
         local_steps_list.append(steps)
 
-    # Group GPUs within 5% of each other's time_per_batch and assign max local_steps in group
+    # Compute total_steps for each GPU (proportional to speed)
+    # Total work = args.total_steps * batch_size_of_fastest_gpu * samples
+    # Each GPU should process work proportional to its speed (inverse of time_per_batch)
+    
+    # Calculate speed ratios (inverse of time_per_batch, normalized)
+    speeds = [min_time_per_batch / info["time_per_batch"] for info in all_info]
+    total_speed = sum(speeds)
+    
+    # Distribute total work proportionally based on speed
+    total_steps_list = []
+    for speed in speeds:
+        # Each GPU gets a fraction of total work proportional to its speed
+        steps = int(round(args.total_steps * speed / total_speed * world_size))
+        total_steps_list.append(steps)
+
+    # Compute checkpoint_interval for each GPU (proportional to speed, same as local_steps)
+    # Fastest GPU keeps original interval, slower GPUs get proportionally fewer steps between checkpoints
+    checkpoint_interval_list = []
+    for info in all_info:
+        interval = int(round(args.checkpoint_interval * (min_time_per_batch / info["time_per_batch"])))
+        checkpoint_interval_list.append(max(1, interval))
+
+    # Group GPUs within 5% of each other's time_per_batch and assign max values in group
     assigned_steps = None
+    assigned_total_steps = None
+    assigned_checkpoint_interval = None
+    
     for i, info in enumerate(all_info):
-        # Find all GPUs within 5% of this GPU's time_per_batch
         group = [
             j
             for j, other in enumerate(all_info)
@@ -128,13 +152,16 @@ def synchronize_batch_and_steps(model_class, get_dataset, device, train_fn, args
             / info["time_per_batch"]
             <= 0.05
         ]
-        # Assign the max local_steps in this group
-        group_steps = max(local_steps_list[j] for j in group)
+        group_local_steps = max(local_steps_list[j] for j in group)
+        group_total_steps = max(total_steps_list[j] for j in group)
+        group_checkpoint_interval = max(checkpoint_interval_list[j] for j in group)
+        
         if i == dist.get_rank():
-            assigned_steps = group_steps
+            assigned_steps = group_local_steps
+            assigned_total_steps = group_total_steps
+            assigned_checkpoint_interval = group_checkpoint_interval
 
-    return batch_size, assigned_steps, all_info
-
+    return batch_size, assigned_steps, assigned_total_steps, assigned_checkpoint_interval, all_info
 
 def ddp_setup(
     master_addr="localhost",
@@ -533,7 +560,7 @@ def update_outer_optimizer(
             else:
                 bytes_sent += nbytes
 
-            param.data = param_offloaded_on_device
+        param.data = param_offloaded_on_device
     outer_optimizer.step()
     if optim_method == "demo":
         if world_size > 1:

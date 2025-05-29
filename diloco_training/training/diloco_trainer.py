@@ -2,7 +2,7 @@ import argparse
 import logging.config
 import os
 from typing import Callable, Optional
-
+import time
 import torch
 import torch.distributed as dist
 from torch.amp import GradScaler, autocast
@@ -121,13 +121,13 @@ def train(
 
         # Measure time for backward pass
         scaler.scale(loss).backward()  # Scale the loss before backward pass
-
         if step_within_grad_acc == 0:
             # Measure time for optimizer update
             logger.info(
                 f"Local rank {local_rank} - Real Step {real_step} - Loss: {loss_batch.item()}, current step sync interval: {local_steps_scheduler[real_step - 1]}"
             )
             update_inner_optimizer(inner_optimizer, scheduler, model, scaler)
+            
             count_inner_optimizer_steps += 1
             # Measure time for parameter drift computation
             current_params = [param.clone().detach() for param in model.parameters()]
@@ -145,7 +145,7 @@ def train(
                 normalized_l2_norm,
             )
 
-            if count_inner_optimizer_steps % local_steps_scheduler[real_step - 1] == 0:
+            if count_inner_optimizer_steps % local_steps_scheduler[real_step - 1] == 0 and not profile:
                 count_inner_optimizer_steps = 0
                 # Measure time for outer optimizer sync
                 logger.info(
@@ -219,6 +219,8 @@ def train(
             loss_batch = 0 if total_steps > real_step else loss_batch
 
         if total_steps != -1 and total_steps <= real_step:
+            if profile:
+                break
             logger.info(
                 f"Performing final sync of the outer optimizer at step {real_step}"
             )
@@ -358,7 +360,21 @@ def main(args):
             group=args.wandb_group,
         )
     logger.info("Model initialized on rank %s", local_rank)
-    # Load dataset
+
+
+    # If GPUs are heterogeneous, we run profiling first:
+    if dist.is_initialized() and args.heterogeneous:
+        per_device_batch_size, local_steps, total_steps, checkpoint_interval, all_info = synchronize_batch_and_steps(
+            model_class, get_dataset, args.device, train, args
+        )
+        logger.info(f"Profiling results: {all_info}, Local_steps: {local_steps}, Total_steps: {total_steps}, Checkpoint_interval: {checkpoint_interval}")
+        args.per_device_train_batch_size = per_device_batch_size
+        args.local_steps = local_steps
+        args.total_steps = total_steps
+        args.checkpoint_interval = checkpoint_interval  # <-- set per-rank checkpoint interval
+
+
+        # Load dataset
     if args.dataset == "test_squence_dataset":
         _, train_dataloader = get_dataset(
             args.batch_size,
@@ -372,15 +388,6 @@ def main(args):
         )
 
     logger.info("Dataset initialized on rank %s", local_rank)
-
-    # If GPUs are heterogeneous, we run profiling first:
-    if dist.is_initialized() and args.heterogeneous:
-        per_device_batch_size, local_steps, all_info = synchronize_batch_and_steps(
-            model_class, get_dataset, args.device, train, args
-        )
-        logger.info(f"Profiling results: {all_info}, Local_steps: {local_steps}")
-        args.per_device_train_batch_size = per_device_batch_size
-        args.local_steps = local_steps
 
     # Start training
     train(

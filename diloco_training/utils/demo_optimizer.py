@@ -1,20 +1,20 @@
+
 """DeMo: Decoupled Momentum Optimization
 
 This implements the DeMo fused optimizer and data parallel algorithm.
 It is recommended to use DeMo as the base data parallelism.
-In an exisiting codebase that uses PyTorch DDP, wrap your forward-backward in
+In an exisiting codebase that uses PyTorch DDP, wrap your forward-backward in 
 `torch.distributed.DistributedDataParallel.no_sync` to disable external gradient synchronization.
 See https://pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html#torch.nn.parallel.DistributedDataParallel.no_sync
 """
 
 import math
-from typing import Callable, Optional
-
 import torch
-import torch.distributed as dist
 import torch.fft
-from einops import rearrange
+import torch.distributed as dist
 
+from einops import rearrange
+from typing import Optional, Callable
 
 class DeMo(torch.optim.SGD):
     def __init__(
@@ -43,7 +43,7 @@ class DeMo(torch.optim.SGD):
         self.compression_topk = compression_topk
         self.process_group = process_group
         self.weight_decay = weight_decay
-
+        self.nbytes = 0
         if self.compression_topk <= 0:
             raise ValueError("topk_size has to be positive")
         if self.compression_chunk <= 0:
@@ -51,9 +51,7 @@ class DeMo(torch.optim.SGD):
         if self.compression_decay < 0:
             raise ValueError("Negative compression_decay is currently not supported")
         if self.compression_decay >= 1:
-            raise ValueError(
-                "Values of compression_decay bigger or equal to 1.0 is currently not supported"
-            )
+            raise ValueError("Values of compression_decay bigger or equal to 1.0 is currently not supported")
 
         self.demo_state = {}
         self._init_demo_states()
@@ -88,49 +86,37 @@ class DeMo(torch.optim.SGD):
                     state = self._state_parameter(p)
 
                     state["step"] = 0
-                    p.data, original_shape = _reshape_to_2d(p.data)
-                    p.grad, _ = _reshape_to_2d(p.grad)
-                    state["delta"] = torch.zeros_like(p.data)
-                    p.data = _reshape_back(p.data, original_shape)
-                    p.grad = _reshape_back(p.grad, original_shape)
+                    state["delta"] = torch.zeros_like(p)
 
     def _demo_all_gather(self, sparse_idx, sparse_val):
-        world_size = (
-            dist.get_world_size()
-            if self.process_group is None
-            else self.process_group.size()
-        )
+        world_size = dist.get_world_size() if self.process_group is None else self.process_group.size()
 
         # Gather all the idx and vals
         sparse_idx_list = [torch.zeros_like(sparse_idx) for wi in range(world_size)]
         sparse_val_list = [torch.zeros_like(sparse_val) for wi in range(world_size)]
 
-        sparse_idx_handle = dist.all_gather(
-            sparse_idx_list, sparse_idx, group=self.process_group, async_op=True
-        )
-        sparse_val_handle = dist.all_gather(
-            sparse_val_list, sparse_val, group=self.process_group, async_op=True
-        )
+        sparse_idx_handle = dist.all_gather(sparse_idx_list, sparse_idx, group=self.process_group, async_op=True)
+        sparse_val_handle = dist.all_gather(sparse_val_list, sparse_val, group=self.process_group, async_op=True)
 
         sparse_idx_handle.wait()
         sparse_val_handle.wait()
 
         return sparse_idx_list, sparse_val_list
 
+
     @torch.no_grad()
     def step(self, closure: Callable | None = None):
-        self.nbytes = 0
 
+        self.data_transmit = 0
+        self.data_receive = 0
+        self.nbytes = 0
+        momentum = 0.9
         for group in self.param_groups:
             lr = group["lr"]
             for p in group["params"]:
                 if not p.requires_grad:
                     continue
                 state = self._state_parameter(p)
-
-                # Reshape parameter to 2D if necessary
-                p_data_2d, original_shape = _reshape_to_2d(p.data)
-                grad_2d, _ = _reshape_to_2d(p.grad)
 
                 # Update step
                 state["step"] += 1
@@ -141,10 +127,8 @@ class DeMo(torch.optim.SGD):
 
                 # Decay delta
                 if self.compression_decay != 1:
-                    state["delta"].mul_(self.compression_decay)
+                    state["delta"].mul_(momentum).add_(p.grad)
 
-                # Add delta to new gradient
-                state["delta"].add_(grad_2d, alpha=lr)
 
                 # Compress delta
                 sparse_idx, sparse_val, xshape, totalk = self.compress.compress(
@@ -159,10 +143,10 @@ class DeMo(torch.optim.SGD):
                 # Remove transmitted from delta
                 state["delta"].sub_(transmit_grad)
 
+                # sync state["delta"] across all nodes
+                dist.all_reduce(state["delta"], op=dist.ReduceOp.AVG, group=self.process_group)
                 # All-gather
-                sparse_idx_gather, sparse_val_gather = self._demo_all_gather(
-                    sparse_idx, sparse_val
-                )
+                sparse_idx_gather, sparse_val_gather = self._demo_all_gather(sparse_idx, sparse_val)
 
                 # Log I/O data size
                 self.nbytes += sparse_idx.nbytes + sparse_val.nbytes
@@ -171,25 +155,15 @@ class DeMo(torch.optim.SGD):
 
                 # Decode grad from all nodes
                 new_grad = self.transform.decode(
-                    self.compress.batch_decompress(
-                        p_data_2d, sparse_idx_gather, sparse_val_gather, xshape, totalk
-                    )
+                    self.compress.batch_decompress(p, sparse_idx_gather, sparse_val_gather, xshape, totalk)
                 )
-                new_grad = _reshape_back(new_grad, original_shape)
+                state["delta"].add_(new_grad)
 
-                # Set grad to values
-                if p.grad is None:
-                    p.grad = new_grad
-                else:
-                    p.grad.copy_(new_grad)
-
-                # Sign-SGD
-                # p.grad.sign_()
+                p.grad.add_(state["delta"], alpha=momentum)
 
         # SGD step
         return super().step(closure)
-
-
+    
 class TransformDCT:
     @torch.no_grad()
     def __init__(self, param_groups, target_chunk, norm="ortho"):
@@ -203,8 +177,6 @@ class TransformDCT:
         # Generate all possible valid DCT sizes for model tensors
         for group in param_groups:
             for p in group["params"]:
-                p.data, original_shape = _reshape_to_2d(p.data)
-                p.grad, _ = _reshape_to_2d(p.grad)
                 if not p.requires_grad:
                     continue
                 for s in p.shape:
@@ -214,15 +186,9 @@ class TransformDCT:
 
                     # Pregenerate DCT basis matrices
                     if sc not in self.f_dict:
-                        identity = torch.eye(sc)
-                        self.f_dict[sc] = (
-                            _dct(identity, norm=norm).to(p.dtype).to(p.device)
-                        )
-                        self.b_dict[sc] = (
-                            _idct(identity, norm=norm).to(p.dtype).to(p.device)
-                        )
-                p.data = _reshape_back(p.data, original_shape)
-                p.grad = _reshape_back(p.grad, original_shape)
+                        I = torch.eye(sc)
+                        self.f_dict[sc] = _dct(I, norm=norm).to(p.dtype).to(p.device)
+                        self.b_dict[sc] = _idct(I, norm=norm).to(p.dtype).to(p.device)
 
     @torch.no_grad()
     def einsum_2d(self, x, b, d=None):
@@ -322,9 +288,7 @@ class CompressDCT:
             x = rearrange(x, "y x h w -> y x (h w)")
 
         # TODO: Careful, this is nondeterministic across different CUDA devices! might cause errors to accumulate between nodes!
-        x.scatter_reduce_(
-            dim=-1, index=idx, src=val, reduce="mean", include_self=False
-        ).reshape(xshape)
+        x.scatter_reduce_(dim=-1, index=idx, src=val, reduce="mean", include_self=False).reshape(xshape)
 
         if len(x.shape) > 2:  # 2D weights
             x = rearrange(x, "y x (h w) -> y x h w", h=xshape[2])
@@ -404,11 +368,7 @@ def _idct(X, norm=None):
         X_v[:, 0] *= math.sqrt(N) * 2
         X_v[:, 1:] *= math.sqrt(N / 2) * 2
 
-    k = (
-        torch.arange(x_shape[-1], dtype=X.dtype, device=X.device)[None, :]
-        * math.pi
-        / (2 * N)
-    )
+    k = torch.arange(x_shape[-1], dtype=X.dtype, device=X.device)[None, :] * math.pi / (2 * N)
     W_r = torch.cos(k)
     W_i = torch.sin(k)
 
@@ -482,22 +442,3 @@ def _get_smaller_split(n, close_to):
                 return val
             return all_divisors[ix - 1]
     return n
-
-
-def _reshape_to_2d(tensor):
-    """Reshape tensor to 2D if it has more than 2 dimensions."""
-    if tensor is None:
-        return None, None
-    original_shape = tensor.shape
-    if len(original_shape) > 2:
-        tensor = tensor.view(original_shape[0], -1)
-    return tensor, original_shape
-
-
-def _reshape_back(tensor, original_shape):
-    if tensor is None:
-        return None
-    """Reshape tensor back to its original shape."""
-    if len(original_shape) > 2:
-        tensor = tensor.view(original_shape)
-    return tensor
