@@ -120,7 +120,7 @@ class DeMo(torch.optim.SGD):
     @torch.no_grad()
     def step(self, closure: Callable | None = None):
         self.nbytes = 0
-
+        momentum = 0.9
         for group in self.param_groups:
             lr = group["lr"]
             for p in group["params"]:
@@ -144,7 +144,7 @@ class DeMo(torch.optim.SGD):
                     state["delta"].mul_(self.compression_decay)
 
                 # Add delta to new gradient
-                state["delta"].add_(grad_2d, alpha=lr)
+                state["delta"].add_(grad_2d)
 
                 # Compress delta
                 sparse_idx, sparse_val, xshape, totalk = self.compress.compress(
@@ -175,14 +175,11 @@ class DeMo(torch.optim.SGD):
                         p_data_2d, sparse_idx_gather, sparse_val_gather, xshape, totalk
                     )
                 )
+                
+                new_grad = state["delta"] + new_grad
                 new_grad = _reshape_back(new_grad, original_shape)
-
-                # Set grad to values
-                if p.grad is None:
-                    p.grad = new_grad
-                else:
-                    p.grad.copy_(new_grad)
-
+                
+                p.grad.add_(new_grad)
                 # Sign-SGD
                 # p.grad.sign_()
 

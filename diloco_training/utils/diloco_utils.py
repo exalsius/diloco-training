@@ -228,8 +228,6 @@ def evaluate_model(eval_dataloader, model, global_rank, local_rank, device):
                     outputs = model(**batch_eval)
                     loss_eval += outputs.loss
             step_eval += 1
-            if step >= 1000:
-                break
         eval_end_time = time.time()
         model.train()
 
@@ -290,13 +288,15 @@ def get_optimizers(model, lr, outer_lr, optim_method="demo"):
     inner_optimizer = torch.optim.AdamW(
         model.parameters(), weight_decay=0.1, lr=lr, betas=(0.9, 0.95)
     )
-
+    
+    if optim_method == "ddp":
+        return inner_optimizer, inner_optimizer
     optimizer_config = {"params": model.parameters(), "lr": outer_lr}
 
     if optim_method == "demo":
         optimizer_config.update(
             {
-                "compression_decay": 0.999,
+                "compression_decay": 0.9,
                 "compression_topk": 32,
                 "compression_chunk": 64,
             }
@@ -533,7 +533,7 @@ def update_outer_optimizer(
             else:
                 bytes_sent += nbytes
 
-            param.data = param_offloaded_on_device
+        param.data = param_offloaded_on_device
     outer_optimizer.step()
     if optim_method == "demo":
         if world_size > 1:

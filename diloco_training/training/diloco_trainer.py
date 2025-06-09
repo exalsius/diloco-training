@@ -72,6 +72,122 @@ def train(
     total_bytes_sent, sync_count = 0, 0
     logger.info(f"Gradient accumulation steps: {gradient_accumulation_steps}")
 
+    scaler = GradScaler(device=device)
+
+    if optim_method == "ddp":
+        for step, batch in enumerate(train_dataloader):
+            if step < start_step:
+                continue
+            if step == start_step:
+                logger.info(f"Starting DDP training from step {start_step}...")
+
+            real_step = (step + 1) // gradient_accumulation_steps
+            step_within_grad_acc = (step + 1) % gradient_accumulation_steps
+
+            batch = prepare_batch(batch, device=device)
+            with autocast(
+                device_type=device,
+                dtype=torch.bfloat16 if device == "cuda" else torch.float16,
+            ):
+                loss = forward_and_compute_loss(model, batch, gradient_accumulation_steps)
+                loss_batch += loss.detach()
+
+            scaler.scale(loss).backward()
+
+            if step_within_grad_acc == 0:
+                logger.info(
+                    f"Local rank {local_rank} - Real Step {real_step} - Loss: {loss_batch.item()}"
+                )
+                scaler.step(inner_optimizer)
+                scaler.update()
+                inner_optimizer.zero_grad()
+                scheduler.step()
+
+                if real_step % checkpoint_interval == 0 and not profile:
+                    val_stats = evaluate_model(
+                        val_dataloader, model, local_rank, global_rank, device
+                    )
+                    # dist.barrier()
+                    log_stats(
+                        local_rank,
+                        real_step,
+                        loss_batch,
+                        world_size,
+                        batch_size,
+                        optim_method,
+                        sync_count,
+                        total_bytes_sent,
+                        val_stats,
+                        local_steps,
+                        per_device_train_batch_size,
+                        args,
+                    )
+                    save_checkpoint(
+                        model,
+                        inner_optimizer,
+                        outer_optimizer,
+                        scheduler,
+                        step,
+                        checkpoint_path,
+                        local_rank,
+                        global_rank,
+                        model_name,
+                        dataset_name,
+                        optim_method,
+                        loss_batch,
+                        real_step,
+                        total_bytes_sent,
+                        sync_count,
+                        0,
+                    )
+                loss_batch = 0 if total_steps > real_step else loss_batch
+
+            if total_steps != -1 and total_steps <= real_step:
+                logger.info(f"DDP: Reached total_steps at step {real_step}")
+                if not profile:
+                    val_stats = evaluate_model(
+                        val_dataloader, model, local_rank, global_rank, device
+                    )
+                    # dist.barrier()
+                    log_stats(
+                        local_rank,
+                        real_step,
+                        loss_batch,
+                        world_size,
+                        batch_size,
+                        optim_method,
+                        sync_count,
+                        total_bytes_sent,
+                        val_stats,
+                        local_steps,
+                        per_device_train_batch_size,
+                        args,
+                    )
+                    save_checkpoint(
+                        model,
+                        inner_optimizer,
+                        outer_optimizer,
+                        scheduler,
+                        step,
+                        checkpoint_path,
+                        local_rank,
+                        global_rank,
+                        model_name,
+                        dataset_name,
+                        optim_method,
+                        loss_batch,
+                        real_step,
+                        total_bytes_sent,
+                        sync_count,
+                        0,
+                    )
+                break
+        return
+    loss_batch = 0
+    gradient_accumulation_steps = batch_size // per_device_train_batch_size
+    total_bytes_sent, sync_count = 0, 0
+    logger.info(f"Gradient accumulation steps: {gradient_accumulation_steps}")
+
     params_offloaded = get_offloaded_param(outer_optimizer, device=device)
     reference_params = [
         param.clone().detach() for param in model.parameters()
@@ -312,6 +428,10 @@ def main(args):
     model_config, model = initialize_model(
         model_class, args.device, args.optim_method, local_rank
     )
+    if args.optim_method == "ddp":
+        model = torch.nn.parallel.DistributedDataParallel(
+            model, device_ids=[local_rank] if args.device == "cuda" else None
+        )
     inner_optimizer, outer_optimizer = get_optimizers(
         model, lr=args.lr, outer_lr=args.outer_lr, optim_method=args.optim_method
     )
@@ -474,8 +594,8 @@ if __name__ == "__main__":
         "--optim_method",
         type=validate_optimizer,
         default="sgd",
-        choices=["demo", "sgd", "sgd_quantized"],
-        help="Optimizer: demo (DeMo), sgd (standard), or sgd_quantized.",
+        choices=["demo", "sgd", "sgd_quantized", "ddp"],  # add "ddp"
+        help="Optimizer: demo (DeMo), sgd (standard), sgd_quantized, or ddp (pure DDP).",
     )
     parser.add_argument(
         "--checkpoint_path",
