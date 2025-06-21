@@ -65,6 +65,7 @@ def train(
     warmup_steps=1000,
     metrics=None,
     profile=False,
+    quantization=False
 ):
     model.train()
     loss_batch = 0
@@ -280,6 +281,7 @@ def train(
                     outer_optimizer,
                     local_steps,
                     device=device,
+                    quantization=quantization
                 )
                 params_offloaded = get_offloaded_param(outer_optimizer, device=device)
 
@@ -527,6 +529,7 @@ def main(args):
         warmup_steps=args.warmup_steps,
         metrics=metrics,
         profile=args.heterogeneous,
+        quantization=args.quantization,
     )
 
     wandb.finish()
@@ -594,8 +597,14 @@ if __name__ == "__main__":
         "--optim_method",
         type=validate_optimizer,
         default="sgd",
-        choices=["demo", "sgd", "sgd_quantized", "ddp"],  # add "ddp"
+        choices=["demo", "sgd", "ddp"],  # add "ddp"
         help="Optimizer: demo (DeMo), sgd (standard), sgd_quantized, or ddp (pure DDP).",
+    )
+    parser.add_argument(
+        "--quantization",
+        type=bool,
+        default=False,
+        help="If True, quantize the model parameters while syncing.",
     )
     parser.add_argument(
         "--checkpoint_path",

@@ -29,77 +29,55 @@ def dequantize_tensor(tensor_q, qmin, qmax):
 
 
 def distributed_reduce_quantized(tensor, op=dist.ReduceOp.AVG):
-    """Perform distributed reduction with int8 quantization for communication efficiency."""
-    # Create a copy of the original tensor for the final result
-    result_tensor = tensor.clone()
+    """Distributed reduction with 8-bit quantization for all communication, including broadcast."""
     world_size = dist.get_world_size()
+    rank = dist.get_rank()
 
-    # For rank 0, we'll gather quantized tensors from all other ranks
-    if dist.get_rank() == 0:
-        # Quantize our own tensor
-        local_tensor_q, qmin, qmax = quantize_tensor(tensor)
+    # Quantize local tensor
+    tensor_q, qmin, qmax = quantize_tensor(tensor)
+    qmin_tensor = torch.tensor([qmin], device=tensor.device)
+    qmax_tensor = torch.tensor([qmax], device=tensor.device)
 
-        # Create list to store gathered quantized tensors and quantization params
-        gathered_tensors_q = [
-            torch.zeros_like(local_tensor_q) for _ in range(world_size)
+    # Prepare buffers for gathering
+    gathered_tensors_q = [torch.zeros_like(tensor_q) for _ in range(world_size)]
+    gathered_qmins = [torch.zeros(1, device=tensor.device) for _ in range(world_size)]
+    gathered_qmaxs = [torch.zeros(1, device=tensor.device) for _ in range(world_size)]
+
+    # Gather quantized tensors and params from all ranks
+    dist.all_gather(gathered_tensors_q, tensor_q)
+    dist.all_gather(gathered_qmins, qmin_tensor)
+    dist.all_gather(gathered_qmaxs, qmax_tensor)
+
+    # Only rank 0 performs reduction and broadcasts result in 8-bit
+    if rank == 0:
+        # Dequantize all tensors
+        dequantized_tensors = [
+            dequantize_tensor(gathered_tensors_q[i], gathered_qmins[i].item(), gathered_qmaxs[i].item())
+            for i in range(world_size)
         ]
-        gathered_qmins = [
-            torch.zeros(1, device=tensor.device) for _ in range(world_size)
-        ]
-        gathered_qmaxs = [
-            torch.zeros(1, device=tensor.device) for _ in range(world_size)
-        ]
-
-        # Place our tensor in the list
-        gathered_tensors_q[0] = local_tensor_q
-        gathered_qmins[0] = torch.tensor([qmin], device=tensor.device)
-        gathered_qmaxs[0] = torch.tensor([qmax], device=tensor.device)
-
-        # Gather quantized tensors and params from all other ranks
-        for i in range(1, world_size):
-            dist.recv(gathered_tensors_q[i], src=i, tag=0)
-            dist.recv(gathered_qmins[i], src=i, tag=1)
-            dist.recv(gathered_qmaxs[i], src=i, tag=2)
-
-        # Dequantize all tensors back to full precision
-        dequantized_tensors = []
-        for i in range(world_size):
-            dequantized = dequantize_tensor(
-                gathered_tensors_q[i],
-                gathered_qmins[i].item(),
-                gathered_qmaxs[i].item(),
-            )
-            dequantized_tensors.append(dequantized)
-
-        # Perform reduction in full precision
+        # Reduce in float32
         if op == dist.ReduceOp.SUM:
-            result = torch.stack(dequantized_tensors).sum(dim=0)
+            reduced = torch.stack(dequantized_tensors).sum(dim=0)
         elif op == dist.ReduceOp.AVG:
-            result = torch.stack(dequantized_tensors).mean(dim=0)
+            reduced = torch.stack(dequantized_tensors).mean(dim=0)
         else:
             raise ValueError(f"Unsupported reduction operation: {op}")
 
-        # Update the result tensor
-        result_tensor.copy_(result)
-
-        # Broadcast the result to all other ranks
-        for i in range(1, world_size):
-            dist.send(result_tensor, dst=i, tag=3)
+        # Quantize reduced tensor for broadcast
+        reduced_q, rqmin, rqmax = quantize_tensor(reduced)
+        rqmin_tensor = torch.tensor([rqmin], device=tensor.device)
+        rqmax_tensor = torch.tensor([rqmax], device=tensor.device)
     else:
-        # Other ranks: quantize and send to rank 0
-        local_tensor_q, qmin, qmax = quantize_tensor(tensor)
-        qmin_tensor = torch.tensor([qmin], device=tensor.device)
-        qmax_tensor = torch.tensor([qmax], device=tensor.device)
+        reduced_q = torch.zeros_like(tensor_q)
+        rqmin_tensor = torch.zeros(1, device=tensor.device)
+        rqmax_tensor = torch.zeros(1, device=tensor.device)
 
-        # Send quantized tensor and params to rank 0
-        dist.send(local_tensor_q, dst=0, tag=0)
-        dist.send(qmin_tensor, dst=0, tag=1)
-        dist.send(qmax_tensor, dst=0, tag=2)
+    # Broadcast quantized reduced tensor and params
+    dist.broadcast(reduced_q, src=0)
+    dist.broadcast(rqmin_tensor, src=0)
+    dist.broadcast(rqmax_tensor, src=0)
 
-        # Receive the reduced result from rank 0
-        dist.recv(result_tensor, src=0, tag=3)
-
-    # Copy the result back to the input tensor
-    tensor.copy_(result_tensor)
-
+    # Dequantize locally
+    result = dequantize_tensor(reduced_q, rqmin_tensor.item(), rqmax_tensor.item())
+    tensor.copy_(result)
     return tensor
