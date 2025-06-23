@@ -65,7 +65,9 @@ def train(
     warmup_steps=1000,
     metrics=None,
     profile=False,
-    quantization=False
+    quantization=False,
+    compression_decay=0.9,
+    compression_topk=32
 ):
     model.train()
     loss_batch = 0
@@ -202,6 +204,11 @@ def train(
         local_steps_scheduler = cosine_schedule_inverse_with_warmup(
             local_steps, local_steps, warmup_steps, total_steps
         )
+        # Update DeMo optimizer config if present
+        if hasattr(outer_optimizer, 'compression_decay'):
+            outer_optimizer.compression_decay = compression_decay
+        if hasattr(outer_optimizer, 'compression_topk'):
+            outer_optimizer.compression_topk = compression_topk
     else:
         local_steps_scheduler = cosine_schedule_inverse_with_warmup(
             local_steps, local_steps, warmup_steps, total_steps
@@ -530,6 +537,8 @@ def main(args):
         metrics=metrics,
         profile=args.heterogeneous,
         quantization=args.quantization,
+        compression_decay=args.compression_decay,
+        compression_topk=args.compression_topk,
     )
 
     wandb.finish()
@@ -654,6 +663,18 @@ if __name__ == "__main__":
         type=bool,
         default=False,
         help="If GPUs are heterogeneous. we run profiling first",
+    )
+    parser.add_argument(
+        "--compression_decay",
+        type=float,
+        default=0.9,
+        help="Compression decay for DeMo optimizer.",
+    )
+    parser.add_argument(
+        "--compression_topk",
+        type=int,
+        default=32,
+        help="Compression top-k for DeMo optimizer.",
     )
 
     args = parser.parse_args()
