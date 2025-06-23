@@ -228,6 +228,8 @@ def evaluate_model(eval_dataloader, model, global_rank, local_rank, device):
                     outputs = model(**batch_eval)
                     loss_eval += outputs.loss
             step_eval += 1
+            if step > 1000:
+                break
         eval_end_time = time.time()
         model.train()
 
