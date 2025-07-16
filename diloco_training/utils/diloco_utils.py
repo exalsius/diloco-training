@@ -228,7 +228,7 @@ def evaluate_model(eval_dataloader, model, global_rank, local_rank, device):
                     outputs = model(**batch_eval)
                     loss_eval += outputs.loss
             step_eval += 1
-            if step >= 1000:
+            if step > 1000:
                 break
         eval_end_time = time.time()
         model.train()
@@ -290,13 +290,15 @@ def get_optimizers(model, lr, outer_lr, optim_method="demo"):
     inner_optimizer = torch.optim.AdamW(
         model.parameters(), weight_decay=0.1, lr=lr, betas=(0.9, 0.95)
     )
-
+    
+    if optim_method == "ddp":
+        return inner_optimizer, inner_optimizer
     optimizer_config = {"params": model.parameters(), "lr": outer_lr}
 
     if optim_method == "demo":
         optimizer_config.update(
             {
-                "compression_decay": 0.999,
+                "compression_decay": 0.9,
                 "compression_topk": 32,
                 "compression_chunk": 64,
             }
@@ -490,6 +492,7 @@ def update_outer_optimizer(
     outer_optimizer,
     local_steps,
     device="cuda",
+    quantization=False,
 ):
     bytes_sent = 0
     local_steps_list = [0 for _ in range(world_size)]
@@ -504,14 +507,12 @@ def update_outer_optimizer(
         # ReduceOp.AVG with Gloo is not supported, so we use SUM instead and manually average later
         op = dist.ReduceOp.AVG if device == "cuda" else dist.ReduceOp.SUM
         if optim_method != "demo":
-            is_quantized = optim_method == "sgd_quantized"
             nbytes = param.grad.nbytes
 
-            if is_quantized:
+            if quantization is True:
                 # Assuming 8x compression from quantization
                 # TODO: This needs to be done in distributed_reduce_quantized
                 nbytes = nbytes // 8
-
                 param.grad = distributed_reduce_quantized(param.grad, op=op)
                 if device == "cpu":
                     # Manual averaging after SUM since dist.ReduceOp.AVG is not supported with gloo
@@ -532,8 +533,9 @@ def update_outer_optimizer(
                 bytes_sent += 2 * nbytes * (world_size - 1) / world_size
             else:
                 bytes_sent += nbytes
-
-            param.data = param_offloaded_on_device
+        param.data = param_offloaded_on_device
+    if quantization is True and optim_method == "demo":
+        outer_optimizer.quantization = True
     outer_optimizer.step()
     if optim_method == "demo":
         if world_size > 1:

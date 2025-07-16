@@ -23,7 +23,7 @@ def model_type(value):
 
 
 def validate_optimizer(value):
-    valid_optimizers = ["demo", "sgd", "sgd_quantized"]
+    valid_optimizers = ["demo", "sgd", "sgd_quantized", "ddp"]
     if value not in valid_optimizers:
         raise ArgumentTypeError(
             f"Invalid optimizer: {value}. Must be one of: {', '.join(valid_optimizers)}"

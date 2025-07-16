@@ -26,13 +26,14 @@ class StreamingImageNetDataset(IterableDataset):
             world_size: Total number of processes
             split: Dataset split to use ('train' or 'validation')
         """
+        self.split = split
         if split == "validation":
             self.dataset = load_dataset(
-                dataset_name, split=split, streaming=True
-            ).shuffle(buffer_size=10000)
+                dataset_name, split=split, cache_dir="/workspace/datasets"
+            )
         else:
             # For training, we don't shuffle
-            self.dataset = load_dataset(dataset_name, split=split, streaming=True)
+            self.dataset = load_dataset(dataset_name, split=split, cache_dir="/workspace/datasets")
         self.rank = rank
         self.world_size = world_size
         self.transform = create_imagenet_transforms()
@@ -44,15 +45,24 @@ class StreamingImageNetDataset(IterableDataset):
         Yields:
             Samples from the dataset
         """
-        iterator = iter(self.dataset)
-        batch = islice(iterator, self.rank, None, self.world_size)
-        for item in batch:
-            image = self.transform(item["image"])
-            label = torch.tensor(item["label"], dtype=torch.long)
-            yield {"image": image, "label": label}
+        if self.split == "validation":
+            iterator = iter(self.dataset)
+            batch = islice(iterator, self.rank, None, self.world_size)
+            for item in batch:
+                image = self.transform(item["image"])
+                label = torch.tensor(item["label"], dtype=torch.long)
+                yield {"image": image, "label": label}
+        else:
+            while True:
+                iterator = iter(self.dataset)
+                batch = islice(iterator, self.rank, None, self.world_size)
+                for item in batch:
+                    image = self.transform(item["image"])
+                    label = torch.tensor(item["label"], dtype=torch.long)
+                    yield {"image": image, "label": label}
 
 
-def create_imagenet_transforms(image_size: int = 64) -> transforms.Compose:
+def create_imagenet_transforms(image_size: int = 256) -> transforms.Compose:
     """
     Create standard ImageNet transforms.
 
@@ -65,6 +75,7 @@ def create_imagenet_transforms(image_size: int = 64) -> transforms.Compose:
     return transforms.Compose(
         [
             transforms.Resize([image_size, image_size]),
+            transforms.CenterCrop(224),
             transforms.Lambda(
                 lambda img: img.convert("RGB") if img.mode != "RGB" else img
             ),  # Ensure 3 channels
@@ -99,7 +110,7 @@ def get_imagenet(
         DataLoader for the dataset
     """
     # Create transforms
-
+    dataset_name = "ILSVRC/imagenet-1k"
     # Load streaming dataset
     dataset = StreamingImageNetDataset(dataset_name, local_rank, world_size, split)
 
@@ -110,6 +121,8 @@ def get_imagenet(
     train_loader = DataLoader(
         dataset,
         batch_size=per_device_train_batch_size,
+        num_workers=4,
+        pin_memory=True,
     )
 
     # Create validation dataset (for simplicity, using the same dataset)
@@ -117,6 +130,8 @@ def get_imagenet(
     val_loader = DataLoader(
         val_dataset,
         batch_size=per_device_train_batch_size,
+        num_workers=4,
+        pin_memory=True,
     )
 
     return train_loader, val_loader

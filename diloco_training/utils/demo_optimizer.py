@@ -14,6 +14,7 @@ import torch
 import torch.distributed as dist
 import torch.fft
 from einops import rearrange
+from diloco_training.utils.quantization import quantize_tensor, dequantize_tensor
 
 
 class DeMo(torch.optim.SGD):
@@ -63,6 +64,8 @@ class DeMo(torch.optim.SGD):
         self.transform = TransformDCT(self.param_groups, self.compression_chunk)
         self.compress = CompressDCT()
 
+        self.quantization = False  # default, can be set externally
+
     def _find_dtype(self):
         for group in self.param_groups:
             for p in group["params"]:
@@ -100,27 +103,63 @@ class DeMo(torch.optim.SGD):
             if self.process_group is None
             else self.process_group.size()
         )
+        if self.quantization is True:
+            # Quantize sparse_val for communication
+            sparse_val_q, qmin, qmax = quantize_tensor(sparse_val)
+            qmin_tensor = torch.tensor([qmin], device=sparse_val.device)
+            qmax_tensor = torch.tensor([qmax], device=sparse_val.device)
 
-        # Gather all the idx and vals
-        sparse_idx_list = [torch.zeros_like(sparse_idx) for wi in range(world_size)]
-        sparse_val_list = [torch.zeros_like(sparse_val) for wi in range(world_size)]
+            # Prepare buffers for gathering
+            sparse_idx_list = [torch.zeros_like(sparse_idx) for _ in range(world_size)]
+            sparse_val_list = [torch.zeros_like(sparse_val_q) for _ in range(world_size)]
+            qmin_list = [torch.zeros(1, device=sparse_val.device) for _ in range(world_size)]
+            qmax_list = [torch.zeros(1, device=sparse_val.device) for _ in range(world_size)]
 
-        sparse_idx_handle = dist.all_gather(
-            sparse_idx_list, sparse_idx, group=self.process_group, async_op=True
-        )
-        sparse_val_handle = dist.all_gather(
-            sparse_val_list, sparse_val, group=self.process_group, async_op=True
-        )
+            # Gather quantized values and quantization params
+            sparse_idx_handle = dist.all_gather(
+                sparse_idx_list, sparse_idx, group=self.process_group, async_op=True
+            )
+            sparse_val_handle = dist.all_gather(
+                sparse_val_list, sparse_val_q, group=self.process_group, async_op=True
+            )
+            qmin_handle = dist.all_gather(
+                qmin_list, qmin_tensor, group=self.process_group, async_op=True
+            )
+            qmax_handle = dist.all_gather(
+                qmax_list, qmax_tensor, group=self.process_group, async_op=True
+            )
 
-        sparse_idx_handle.wait()
-        sparse_val_handle.wait()
+            sparse_idx_handle.wait()
+            sparse_val_handle.wait()
+            qmin_handle.wait()
+            qmax_handle.wait()
 
-        return sparse_idx_list, sparse_val_list
+            # Dequantize gathered values
+            sparse_val_list = [
+                dequantize_tensor(sparse_val_list[i], qmin_list[i].item(), qmax_list[i].item())
+                for i in range(world_size)
+            ]
+            return sparse_idx_list, sparse_val_list
+        else:
+            # Gather all the idx and vals
+            sparse_idx_list = [torch.zeros_like(sparse_idx) for wi in range(world_size)]
+            sparse_val_list = [torch.zeros_like(sparse_val) for wi in range(world_size)]
+
+            sparse_idx_handle = dist.all_gather(
+                sparse_idx_list, sparse_idx, group=self.process_group, async_op=True
+            )
+            sparse_val_handle = dist.all_gather(
+                sparse_val_list, sparse_val, group=self.process_group, async_op=True
+            )
+
+            sparse_idx_handle.wait()
+            sparse_val_handle.wait()
+
+            return sparse_idx_list, sparse_val_list
 
     @torch.no_grad()
     def step(self, closure: Callable | None = None):
         self.nbytes = 0
-
         for group in self.param_groups:
             lr = group["lr"]
             for p in group["params"]:
@@ -144,7 +183,7 @@ class DeMo(torch.optim.SGD):
                     state["delta"].mul_(self.compression_decay)
 
                 # Add delta to new gradient
-                state["delta"].add_(grad_2d, alpha=lr)
+                state["delta"].add_(grad_2d)
 
                 # Compress delta
                 sparse_idx, sparse_val, xshape, totalk = self.compress.compress(
@@ -175,14 +214,11 @@ class DeMo(torch.optim.SGD):
                         p_data_2d, sparse_idx_gather, sparse_val_gather, xshape, totalk
                     )
                 )
-                new_grad = _reshape_back(new_grad, original_shape)
-
-                # Set grad to values
-                if p.grad is None:
-                    p.grad = new_grad
-                else:
-                    p.grad.copy_(new_grad)
-
+                state["delta"] = state["delta"] + new_grad
+                
+                new_grad = _reshape_back(state["delta"], original_shape)
+                
+                p.grad = p.grad + new_grad*self.compression_decay
                 # Sign-SGD
                 # p.grad.sign_()
 
