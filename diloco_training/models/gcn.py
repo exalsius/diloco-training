@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Optional, Union,Tuple
 
 import torch
 import torch.nn as nn
@@ -20,9 +20,9 @@ class GCNWithLoss(nn.Module):
     def __init__(
         self,
         in_channels: int = 128,
-        hidden_channels: int = 256,
+        hidden_channels: int = 1024,  # Increased hidden channels
         out_channels: int = 40,
-        num_layers: int = 2,
+        num_layers: int = 4,  # Increased number of layers
         dropout: float = 0.0,
     ):
         """
@@ -65,14 +65,19 @@ class GCNWithLoss(nn.Module):
 
         return GCNOutput(logits=logits)
 
+    def print_num_parameters(self) -> None:
+        """Print the total number of trainable parameters in the model."""
+        num_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        print(f"Total trainable parameters: {num_params}")
+
 
 def get_gcn(
     in_channels: int = 128,
-    hidden_channels: int = 256,
+    hidden_channels: int = 1024,  # Increased hidden channels
     out_channels: int = 40,
-    num_layers: int = 2,
+    num_layers: int = 3,  # Increased number of layers
     dropout: float = 0.0,
-) -> GCNWithLoss:
+) -> Tuple[None, GCNWithLoss]:
     """
     Factory function to create a GCN model with loss calculation.
 
@@ -86,7 +91,7 @@ def get_gcn(
     Returns:
         Configured GCNWithLoss model
     """
-    return GCNWithLoss(
+    return None, GCNWithLoss(
         in_channels=in_channels,
         hidden_channels=hidden_channels,
         out_channels=out_channels,
@@ -97,5 +102,6 @@ def get_gcn(
 
 # Example usage
 if __name__ == "__main__":
-    model = get_gcn()
+    _, model = get_gcn()  # Updated parameters
+    model.print_num_parameters()
     print(model)
