@@ -19,6 +19,7 @@ dependencies = [
     "torch>=2.5.0",
     "torchvision>=0.20.0",
     "torchaudio>=2.5.0",
+    "seaborn>=0.13.2",
 ]
 
 [project.optional-dependencies]

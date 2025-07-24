@@ -75,7 +75,7 @@ def get_gcn(
     in_channels: int = 128,
     hidden_channels: int = 1024,  # Increased hidden channels
     out_channels: int = 40,
-    num_layers: int = 3,  # Increased number of layers
+    num_layers: int = 4,  # Increased number of layers
     dropout: float = 0.0,
 ) -> Tuple[None, GCNWithLoss]:
     """
