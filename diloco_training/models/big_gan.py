@@ -9,6 +9,8 @@ from torch.utils.data import DataLoader
 from datasets import load_dataset
 from tqdm import tqdm
 from diloco_training.data.imagenet import get_imagenet
+from dataclasses import dataclass
+from typing import Optional, Union
 # -------------------------------
 # BigGAN-Deep Generator & Discriminator
 # -------------------------------
@@ -147,70 +149,128 @@ class Discriminator(nn.Module):
 
 
 # -------------------------------
-# Training Loop & Dataset Loading
+# GAN Model with Loss Calculation
+# -------------------------------
+
+@dataclass
+class BigGANOutput:
+    """Container for BigGAN outputs during training and inference."""
+    logits: torch.Tensor
+    loss: Optional[torch.Tensor] = None
+
+
+class BigGANWithLoss(nn.Module):
+    """BigGAN model with integrated loss calculation functionality.
+    
+    This class wraps the Generator and Discriminator models and provides 
+    an interface for both inference and training with loss calculation.
+    """
+    
+    def __init__(self, z_dim=128, class_dim=1000, ch=96):
+        super().__init__()
+        self.generator = Generator(z_dim=z_dim, class_dim=class_dim, ch=ch)
+        self.discriminator = Discriminator(class_dim=class_dim, ch=ch)
+        self.z_dim = z_dim
+        self.class_dim = class_dim
+        
+    def forward(self, image: torch.Tensor, label: Optional[torch.Tensor] = None) -> Union[torch.Tensor, BigGANOutput]:
+        """Forward pass through the BigGAN model.
+        
+        Args:
+            image: Input image tensor (real images for discriminator training)
+            label: Optional ground truth labels for loss calculation
+            
+        Returns:
+            If label is provided, returns a BigGANOutput with loss and logits.
+            Otherwise, returns just the discriminator logits.
+        """
+        batch_size = image.size(0)
+        device = image.device
+        
+        if label is not None:
+            # Training mode: compute GAN loss
+            # Generate fake images
+            z = torch.randn(batch_size, self.z_dim, device=device)
+            fake_labels = torch.randint(0, self.class_dim, (batch_size,), device=device)
+            fake_images = self.generator(z, fake_labels)
+            
+            # Discriminator predictions
+            d_real = self.discriminator(image, label)
+            d_fake = self.discriminator(fake_images.detach(), fake_labels)
+            
+            # Wasserstein GAN loss (can be modified for other GAN losses)
+            d_loss = -(d_real.mean() - d_fake.mean())
+            
+            # Generator loss
+            d_fake_for_gen = self.discriminator(fake_images, fake_labels)
+            g_loss = -d_fake_for_gen.mean()
+            
+            # Combined loss (you may want to weight these differently)
+            total_loss = d_loss + g_loss
+            
+            return BigGANOutput(logits=d_real, loss=total_loss)
+        else:
+            # Inference mode: just return discriminator output
+            # For inference, we need a dummy label if not provided
+            if label is None:
+                label = torch.zeros(batch_size, dtype=torch.long, device=device)
+            return self.discriminator(image, label)
+
+
+def get_biggan(z_dim: int = 128, class_dim: int = 1000, ch: int = 96):
+    """Factory function to create a BigGAN model with loss calculation interface.
+    
+    Args:
+        z_dim: Dimension of the noise vector
+        class_dim: Number of classes (for conditional generation)
+        ch: Base channel multiplier
+        
+    Returns:
+        Tuple of (config, model) where config is None and model is BigGANWithLoss
+    """
+    model = BigGANWithLoss(z_dim=z_dim, class_dim=class_dim, ch=ch)
+    return None, model
+
+
+# -------------------------------
+# Training Loop & Dataset Loading (Reference Implementation)
 # -------------------------------
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 def main():
+    """Example usage of BigGAN with loss calculation interface."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Data
-    rank = 0
-    world_size = 1
-    batch_size = 32
-
-    train_loader, _ = get_imagenet(
-        world_size=world_size,
-        local_rank=rank,
-        per_device_train_batch_size=batch_size,
-        split="train",
-        image_size=256,
-        dataset_name="ILSVRC/imagenet-1k"
-    )
-
-    # Model
-    G = Generator().to(device)
-    D = Discriminator().to(device)
-
-    print(f"Generator Parameters: {count_parameters(G):,}")
-    print(f"Discriminator Parameters: {count_parameters(D):,}")
-
-    opt_G = torch.optim.Adam(G.parameters(), lr=2e-4, betas=(0.0, 0.999))
-    opt_D = torch.optim.Adam(D.parameters(), lr=2e-4, betas=(0.0, 0.999))
-
-    z_dim = 128
-
-    for epoch in range(1000):
-        for i, batch in enumerate(tqdm(train_loader)):
-            real, labels = batch["image"].to(device), batch["label"].to(device)
-            batch_size = real.size(0)
-            z = torch.randn(batch_size, z_dim).to(device)
-            fake_labels = torch.randint(0, 1000, (batch_size,), device=device)
-            fake = G(z, fake_labels)
-
-            # Discriminator step
-            D_real = D(real, labels).mean()
-            D_fake = D(fake.detach(), fake_labels).mean()
-            d_loss = -(D_real - D_fake)
-            opt_D.zero_grad()
-            d_loss.backward()
-            opt_D.step()
-
-            # Generator step
-            fake = G(z, fake_labels)
-            g_loss = -D(fake, fake_labels).mean()
-            opt_G.zero_grad()
-            g_loss.backward()
-            opt_G.step()
-
-            # Save generated images every 10 iterations
-            if i % 1000 == 0:
-                utils.save_image(fake[:16], f"samples/fake_epoch{epoch}_iter{i}.png", normalize=True, scale_each=True, nrow=4)
-
-        print(f"Epoch {epoch}: D_loss={d_loss.item():.4f}, G_loss={g_loss.item():.4f}")
-        utils.save_image(fake[:16], f"samples/fake_epoch{epoch}.png", normalize=True, scale_each=True, nrow=4)
+    
+    # Create model using the factory function
+    _, model = get_biggan(z_dim=128, class_dim=1000, ch=96)
+    model = model.to(device)
+    
+    print(f"BigGAN Parameters: {count_parameters(model):,}")
+    
+    # Example forward pass
+    batch_size, channels, height, width = 2, 3, 256, 256
+    dummy_images = torch.randn(batch_size, channels, height, width, device=device)
+    dummy_labels = torch.randint(0, 1000, (batch_size,), device=device)
+    
+    # Test inference (without loss calculation)
+    with torch.no_grad():
+        logits = model(dummy_images)
+        print(f"Inference output shape: {logits.shape}")
+    
+    # Test training with loss calculation
+    model.train()
+    output = model(dummy_images, dummy_labels)
+    print(f"Training loss: {output.loss.item()}")
+    print(f"Training logits shape: {output.logits.shape}")
+    
+    # Example of generating images
+    with torch.no_grad():
+        z = torch.randn(4, 128, device=device)
+        labels = torch.randint(0, 1000, (4,), device=device)
+        generated_images = model.generator(z, labels)
+        print(f"Generated images shape: {generated_images.shape}")
 
 
 if __name__ == '__main__':

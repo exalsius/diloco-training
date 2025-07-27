@@ -1,6 +1,6 @@
 from typing import Callable, Dict
 
-# from .big_gan import get_biggan
+from .big_gan import get_biggan
 from .gcn import get_gcn
 from .gpt_neo import get_gpt_neo, get_tiny_gpt_neo
 from .gpt_neo_x import get_gpt_neo_x
@@ -17,6 +17,6 @@ MODEL_REGISTRY: Dict[str, Callable] = {
     "gpt-neo-x": get_gpt_neo_x,
     "gpt-neo-tiny": get_tiny_gpt_neo,
     "gcn": get_gcn,
-    # "biggan": get_biggan,
+    "biggan": get_biggan,
     # "ppo": get_ppo,
 }
