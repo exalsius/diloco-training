@@ -89,12 +89,20 @@ def evaluate_model(eval_dataloader, model, global_rank, local_rank, device):
         eval_start_time = time.time()
         model.eval()
 
+        # Check if this is a GAN model
+        is_gan = hasattr(model, 'generator') and hasattr(model, 'discriminator')
+
         for step, batch_eval in enumerate(eval_dataloader):
             for key in batch_eval.keys():
                 batch_eval[key] = batch_eval[key].to(device)
             with torch.no_grad():
                 with autocast(device_type=device, dtype=torch.bfloat16):
-                    outputs = model(**batch_eval)
+                    if is_gan:
+                        # For GAN, evaluate discriminator loss
+                        model.set_training_mode("discriminator")
+                        outputs = model(batch_eval["image"], batch_eval["label"])
+                    else:
+                        outputs = model(**batch_eval)
                     loss_eval += outputs.loss
             step_eval += 1
             if step > 1000:
@@ -104,10 +112,17 @@ def evaluate_model(eval_dataloader, model, global_rank, local_rank, device):
 
         logger.info(f"Evaluation time: {eval_end_time - eval_start_time:.2f} seconds")
         loss_eval /= float(step_eval)
-        return {
-            "eval_loss": loss_eval,
-            "eval_perplexity": torch.exp(torch.tensor(loss_eval)).item(),
-        }
+        
+        if is_gan:
+            return {
+                "eval_loss": loss_eval,
+                "eval_d_loss": loss_eval,  # For GAN, this is discriminator loss
+            }
+        else:
+            return {
+                "eval_loss": loss_eval,
+                "eval_perplexity": torch.exp(torch.tensor(loss_eval)).item(),
+            }
     else:
         return None
 
