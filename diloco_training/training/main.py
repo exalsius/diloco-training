@@ -1,8 +1,10 @@
 import argparse
 import os
+import torch
 import torch.distributed as dist
 from diloco_training.utils.diloco_utils import ddp_setup, wandb_setup
 from diloco_training.training.distributed_trainer import DistributedTrainer
+from diloco_training.utils.metrics_logger import collect_environment_metadata
 
 
 def main(args):
@@ -24,14 +26,19 @@ def main(args):
         device=args.device,
     )
 
+    # Collect environment metadata for logging
+    env_metadata = collect_environment_metadata(args)
 
-    # Initialize WandB
+    # Initialize WandB with enhanced metadata
     wandb_setup(
         local_rank=args.local_rank,
         user_key=args.wandb_user_key,
         project_name=args.wandb_project_name,
         run_id=args.wandb_run_id,
         group=args.wandb_group,
+        experiment_description=args.experiment_description,
+        metadata=env_metadata,
+        args=args,
     )
 
     # Initialize and run trainer
@@ -67,6 +74,13 @@ if __name__ == "__main__":
     parser.add_argument("--heterogeneous", type=bool, default=False, help="Enable heterogeneous profiling.")
     parser.add_argument("--compression_decay", type=float, default=0.9, help="Compression decay.")
     parser.add_argument("--compression_topk", type=int, default=32, help="Compression top-k.")
+    
+    # New experiment metadata arguments
+    parser.add_argument("--experiment_description", type=str, default="DiLoCo distributed training experiment", 
+                       help="Description of the experiment run.")
+    parser.add_argument("--experiment_tags", type=str, nargs="*", default=[], 
+                       help="Tags for the experiment (e.g., 'baseline', 'optimization', 'scaling').")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility.")
 
     args = parser.parse_args()
     main(args)
