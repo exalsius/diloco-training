@@ -16,9 +16,6 @@ logging.config.dictConfig(LOG_CONFIG)
 logger = get_logger("diloco_training")
 
 
-# ...existing code...
-
-
 def ddp_setup(
     master_addr="localhost",
     master_port="12355",
@@ -45,12 +42,36 @@ def ddp_setup(
 
 
 def wandb_setup(
-    local_rank, user_key, project_name, run_id=None, group="diloco_workers"
+    local_rank, user_key, project_name, run_id=None, group="diloco_workers",
+    experiment_description=None, metadata=None, args=None
 ):
     if local_rank == 0:
+        # Prepare wandb configuration
+        wandb_config = {
+            "description": experiment_description or "DiLoCo distributed training experiment",
+        }
+        
+        # Add metadata to config
+        if metadata:
+            wandb_config.update(metadata)
+        
+        # Add all args to config
+        if args:
+            wandb_config.update({f"args/{k}": v for k, v in vars(args).items()})
+        
+        # Set up tags
+        tags = getattr(args, 'experiment_tags', []) if args else []
+        tags.extend([f"optim_{args.optim_method}" if args else "unknown", 
+                    f"device_{args.device}" if args else "unknown"])
+        
         if user_key is None:
             os.environ["WANDB_MODE"] = "offline"
-            wandb.init(project=project_name)
+            wandb.init(
+                project=project_name,
+                config=wandb_config,
+                tags=tags,
+                notes=experiment_description,
+            )
         else:
             wandb.login(key=user_key)
             wandb.init(
@@ -59,7 +80,16 @@ def wandb_setup(
                 name=f"{group}-worker-{local_rank}",
                 id=run_id,
                 resume="allow",
+                config=wandb_config,
+                tags=tags,
+                notes=experiment_description,
             )
+        
+        # Enable system monitoring
+        if args and args.device == "cuda":
+            wandb.watch_called = False  # Reset watch state
+            
+        logger.info(f"WandB initialized with description: {experiment_description}")
 
 
 def get_offloaded_param(outer_optimizer: torch.optim.Optimizer, device="cuda"):
@@ -108,20 +138,39 @@ def evaluate_model(eval_dataloader, model, global_rank, local_rank, device):
             if step > 1000:
                 break
         eval_end_time = time.time()
+        eval_duration = eval_end_time - eval_start_time
         model.train()
 
-        logger.info(f"Evaluation time: {eval_end_time - eval_start_time:.2f} seconds")
+        logger.info(f"Evaluation time: {eval_duration:.2f} seconds")
         loss_eval /= float(step_eval)
         
+        # Log evaluation metrics
+        eval_metrics = {
+            "eval/duration": eval_duration,
+            "eval/steps": step_eval,
+            "eval/samples_per_second": step_eval / eval_duration if eval_duration > 0 else 0,
+        }
+        
         if is_gan:
+            eval_metrics.update({
+                "eval/loss": loss_eval,
+                "eval/d_loss": loss_eval,
+            })
             return {
                 "eval_loss": loss_eval,
-                "eval_d_loss": loss_eval,  # For GAN, this is discriminator loss
+                "eval_d_loss": loss_eval,
+                **eval_metrics
             }
         else:
+            perplexity = torch.exp(torch.tensor(loss_eval)).item()
+            eval_metrics.update({
+                "eval/loss": loss_eval,
+                "eval/perplexity": perplexity,
+            })
             return {
                 "eval_loss": loss_eval,
-                "eval_perplexity": torch.exp(torch.tensor(loss_eval)).item(),
+                "eval_perplexity": perplexity,
+                **eval_metrics
             }
     else:
         return None
@@ -208,11 +257,21 @@ def update_outer_optimizer(
     local_steps,
     device="cuda",
     quantization=False,
+    metrics_logger=None,
 ):
+    # Start timing for reduce operation
+    reduce_start_time = time.time()
+    
     bytes_sent = 0
     local_steps_list = [0 for _ in range(world_size)]
     dist.all_gather_object(local_steps_list, local_steps)
     sum_local_steps = sum(local_steps_list)
+
+    # Time the wait for reduce to start (if there's synchronization overhead)
+    reduce_processing_start = time.time()
+    if metrics_logger:
+        wait_time = reduce_processing_start - reduce_start_time
+        metrics_logger.log_reduce_wait_time(wait_time)
 
     for param_offloaded, param in zip(params_offloaded, main_param):
         param_offloaded_on_device = param_offloaded.data.to(param.device)
@@ -258,5 +317,12 @@ def update_outer_optimizer(
         else:
             bytes_sent = outer_optimizer.nbytes
     outer_optimizer.zero_grad()
+
+    # Log reduce processing time
+    reduce_end_time = time.time()
+    processing_time = reduce_end_time - reduce_processing_start
+    if metrics_logger:
+        metrics_logger.log_reduce_processing_time(processing_time)
+        metrics_logger.log_communication_metrics(bytes_sent, "outer_sync")
 
     return bytes_sent
