@@ -111,9 +111,15 @@ class DeMo(torch.optim.SGD):
 
             # Prepare buffers for gathering
             sparse_idx_list = [torch.zeros_like(sparse_idx) for _ in range(world_size)]
-            sparse_val_list = [torch.zeros_like(sparse_val_q) for _ in range(world_size)]
-            qmin_list = [torch.zeros(1, device=sparse_val.device) for _ in range(world_size)]
-            qmax_list = [torch.zeros(1, device=sparse_val.device) for _ in range(world_size)]
+            sparse_val_list = [
+                torch.zeros_like(sparse_val_q) for _ in range(world_size)
+            ]
+            qmin_list = [
+                torch.zeros(1, device=sparse_val.device) for _ in range(world_size)
+            ]
+            qmax_list = [
+                torch.zeros(1, device=sparse_val.device) for _ in range(world_size)
+            ]
 
             # Gather quantized values and quantization params
             sparse_idx_handle = dist.all_gather(
@@ -136,7 +142,9 @@ class DeMo(torch.optim.SGD):
 
             # Dequantize gathered values
             sparse_val_list = [
-                dequantize_tensor(sparse_val_list[i], qmin_list[i].item(), qmax_list[i].item())
+                dequantize_tensor(
+                    sparse_val_list[i], qmin_list[i].item(), qmax_list[i].item()
+                )
                 for i in range(world_size)
             ]
             return sparse_idx_list, sparse_val_list
@@ -215,10 +223,10 @@ class DeMo(torch.optim.SGD):
                     )
                 )
                 state["delta"] = state["delta"] + new_grad
-                
+
                 new_grad = _reshape_back(state["delta"], original_shape)
-                
-                p.grad = p.grad + new_grad*self.compression_decay
+
+                p.grad = p.grad + new_grad * self.compression_decay
                 # Sign-SGD
                 # p.grad.sign_()
 

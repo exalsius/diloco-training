@@ -33,7 +33,9 @@ class StreamingImageNetDataset(IterableDataset):
             )
         else:
             # For training, we don't shuffle
-            self.dataset = load_dataset(dataset_name, split=split, cache_dir="/workspace/datasets")
+            self.dataset = load_dataset(
+                dataset_name, split=split, cache_dir="/workspace/datasets"
+            )
         self.rank = rank
         self.world_size = world_size
         self.transform = create_imagenet_transforms()

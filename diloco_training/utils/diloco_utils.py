@@ -11,6 +11,7 @@ from torch.amp import autocast
 import wandb
 from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
 from diloco_training.utils.quantization import distributed_reduce_quantized
+
 logging.config.dictConfig(LOG_CONFIG)
 logger = get_logger("diloco_training")
 
@@ -41,28 +42,39 @@ def ddp_setup(
 
 
 def wandb_setup(
-    local_rank, user_key, project_name, run_id=None, group="diloco_workers",
-    experiment_description=None, metadata=None, args=None
+    local_rank,
+    user_key,
+    project_name,
+    run_id=None,
+    group="diloco_workers",
+    experiment_description=None,
+    metadata=None,
+    args=None,
 ):
     if local_rank == 0:
         # Prepare wandb configuration
         wandb_config = {
-            "description": experiment_description or "DiLoCo distributed training experiment",
+            "description": experiment_description
+            or "DiLoCo distributed training experiment",
         }
-        
+
         # Add metadata to config
         if metadata:
             wandb_config.update(metadata)
-        
+
         # Add all args to config
         if args:
             wandb_config.update({f"args/{k}": v for k, v in vars(args).items()})
-        
+
         # Set up tags
-        tags = getattr(args, 'experiment_tags', []) if args else []
-        tags.extend([f"optim_{args.optim_method}" if args else "unknown", 
-                    f"device_{args.device}" if args else "unknown"])
-        
+        tags = getattr(args, "experiment_tags", []) if args else []
+        tags.extend(
+            [
+                f"optim_{args.optim_method}" if args else "unknown",
+                f"device_{args.device}" if args else "unknown",
+            ]
+        )
+
         if user_key is None:
             os.environ["WANDB_MODE"] = "offline"
             wandb.init(
@@ -83,11 +95,11 @@ def wandb_setup(
                 tags=tags,
                 notes=experiment_description,
             )
-        
+
         # Enable system monitoring
         if args and args.device == "cuda":
             wandb.watch_called = False  # Reset watch state
-            
+
         logger.info(f"WandB initialized with description: {experiment_description}")
 
 
@@ -119,7 +131,7 @@ def evaluate_model(eval_dataloader, model, global_rank, local_rank, device):
         model.eval()
 
         # Check if this is a GAN model
-        is_gan = hasattr(model, 'generator') and hasattr(model, 'discriminator')
+        is_gan = hasattr(model, "generator") and hasattr(model, "discriminator")
 
         for step, batch_eval in enumerate(eval_dataloader):
             for key in batch_eval.keys():
@@ -142,41 +154,42 @@ def evaluate_model(eval_dataloader, model, global_rank, local_rank, device):
 
         logger.info(f"Evaluation time: {eval_duration:.2f} seconds")
         loss_eval /= float(step_eval)
-        
+
         # Log evaluation metrics
         eval_metrics = {
             "eval/duration": eval_duration,
             "eval/steps": step_eval,
-            "eval/samples_per_second": step_eval / eval_duration if eval_duration > 0 else 0,
+            "eval/samples_per_second": (
+                step_eval / eval_duration if eval_duration > 0 else 0
+            ),
         }
-        
+
         if is_gan:
-            eval_metrics.update({
-                "eval/loss": loss_eval,
-                "eval/d_loss": loss_eval,
-            })
-            return {
-                "eval_loss": loss_eval,
-                "eval_d_loss": loss_eval,
-                **eval_metrics
-            }
+            eval_metrics.update(
+                {
+                    "eval/loss": loss_eval,
+                    "eval/d_loss": loss_eval,
+                }
+            )
+            return {"eval_loss": loss_eval, "eval_d_loss": loss_eval, **eval_metrics}
         else:
             perplexity = torch.exp(torch.tensor(loss_eval)).item()
-            eval_metrics.update({
-                "eval/loss": loss_eval,
-                "eval/perplexity": perplexity,
-            })
+            eval_metrics.update(
+                {
+                    "eval/loss": loss_eval,
+                    "eval/perplexity": perplexity,
+                }
+            )
             return {
                 "eval_loss": loss_eval,
                 "eval_perplexity": perplexity,
-                **eval_metrics
+                **eval_metrics,
             }
     else:
         return None
 
-def log_inner_stats(
-    local_rank, real_step, loss_batch, sync_count
-):
+
+def log_inner_stats(local_rank, real_step, loss_batch, sync_count):
     dict_to_log = {
         "local_rank": local_rank,
         "inner_loss": loss_batch.item(),
@@ -226,6 +239,7 @@ def log_stats(
         logger.info("Stats: %s", dict_to_log)
         wandb.log(dict_to_log)
 
+
 def prepare_batch(batch, device="cuda"):
     for key in batch.keys():
         batch[key] = batch[key].to(device, non_blocking=True)
@@ -260,7 +274,7 @@ def update_outer_optimizer(
 ):
     # Start timing for reduce operation
     reduce_start_time = time.time()
-    
+
     bytes_sent = 0
     local_steps_list = [0 for _ in range(world_size)]
     dist.all_gather_object(local_steps_list, local_steps)
