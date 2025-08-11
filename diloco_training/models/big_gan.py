@@ -1,16 +1,13 @@
 # train_biggan_deep_imagenet.py
 import os
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision import transforms, utils
-from torch.utils.data import DataLoader
-from datasets import load_dataset
+from torchvision import utils
 from tqdm import tqdm
 from diloco_training.data.imagenet import get_imagenet
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Optional
 # -------------------------------
 # BigGAN-Deep Generator & Discriminator
 # -------------------------------
@@ -262,10 +259,7 @@ def main():
         for i, batch in enumerate(tqdm(train_loader)):
             real, labels = batch["image"].to(device), batch["label"].to(device)
             batch_size = real.size(0)
-            
-            # Use the wrapped model for training
-            output = model(real, labels)
-            total_loss = output.loss
+    
             
             # Generator and discriminator steps using the wrapped model components
             z = torch.randn(batch_size, z_dim, device=device)

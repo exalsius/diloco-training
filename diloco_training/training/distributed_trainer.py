@@ -441,7 +441,7 @@ class DistributedTrainer:
                     metrics_logger=self.metrics_logger
                 )
                 self.params_offloaded = get_offloaded_param(self.outer_optimizer, device=self.device)
-                final_sync_time = self.metrics_logger.end_timer("final_outer_sync")
+                self.metrics_logger.end_timer("final_outer_sync")
 
                 # Update reference parameters after outer optimizer sync
                 self.reference_params = [param.clone().detach() for param in self.model.parameters()]
@@ -682,28 +682,6 @@ class DistributedTrainer:
 
         self.scaler.scale(g_loss).backward()
 
-    def _handle_optimizer_step(self, real_step):
-        """Handle optimizer updates for both GAN and non-GAN models"""
-        logger.info(f"Local rank {self.local_rank} - Real Step {real_step} - Loss: {self.loss_batch.item()}")
-        
-        if self.is_gan:
-            # Update both generator and discriminator
-            update_inner_optimizer(self.inner_optimizer_d, self.scheduler_d, self.model.discriminator, self.scaler)
-            update_inner_optimizer(self.inner_optimizer_g, self.scheduler_g, self.model.generator, self.scaler)
-        else:
-            update_inner_optimizer(self.inner_optimizer, self.scheduler, self.model, self.scaler)
-            
-        self.count_inner_optimizer_steps += 1
-
-        log_inner_stats(self.local_rank, real_step, self.loss_batch, self.sync_count)
-
-        if self.count_inner_optimizer_steps % self.local_steps == 0:
-            self._sync_outer_optimizers(real_step)
-
-        if real_step % self.checkpoint_interval == 0 and not self.heterogeneous:
-            self._checkpoint_and_log(real_step)
-
-        self.loss_batch = 0 if self.total_steps > real_step else self.loss_batch
 
     def _sync_outer_optimizers(self, real_step):
         """Sync outer optimizers for both GAN and non-GAN models"""
@@ -739,30 +717,6 @@ class DistributedTrainer:
         self.reference_params = [param.clone().detach() for param in self.model.parameters()]
         self.total_bytes_sent += bytes_sent
         self.sync_count += 1
-
-    def _checkpoint_and_log(self, real_step):
-        """Checkpoint the model and log the stats"""
-        # Measure time for checkpointing
-        val_stats = evaluate_model(
-            self.val_dataloader, self.model, self.local_rank, self.global_rank, self.device
-        )
-        dist.barrier()
-        log_stats(
-            self.local_rank,
-            real_step,
-            self.loss_batch,
-            self.world_size,
-            self.batch_size,
-            self.optim_method,
-            self.sync_count,
-            self.total_bytes_sent,
-            val_stats,
-            self.local_steps,
-            self.per_device_train_batch_size,
-            self.args,
-        )
-
-        self.save_checkpoint(step, real_step)
 
     def save_checkpoint(self, step, real_step):
         checkpoint = {

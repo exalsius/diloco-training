@@ -1,6 +1,5 @@
 import argparse
 import os
-import torch
 import torch.distributed as dist
 from diloco_training.utils.diloco_utils import ddp_setup, wandb_setup
 from diloco_training.training.distributed_trainer import DistributedTrainer

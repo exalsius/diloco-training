@@ -5,7 +5,7 @@ import subprocess
 import torch
 import torch.distributed as dist
 from collections import defaultdict
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import wandb
 from diloco_training.utils.exalsius_logger import get_logger
 
@@ -63,8 +63,8 @@ class MetricsLogger:
         wandb.log({
             f"comm/{sync_type}_bytes_sent": bytes_sent,
             f"comm/{sync_type}_bytes_sent_mb": bytes_sent / (1024 * 1024),
-            f"comm/total_bytes_sent_mb": self.communication_metrics["total_bytes_sent"] / (1024 * 1024),
-            f"comm/sync_count": self.communication_metrics["sync_count"],
+            "comm/total_bytes_sent_mb": self.communication_metrics["total_bytes_sent"] / (1024 * 1024),
+            "comm/sync_count": self.communication_metrics["sync_count"],
             "rank": self.local_rank,
         })
     
@@ -220,7 +220,7 @@ def collect_environment_metadata(args) -> Dict[str, Any]:
             "git/commit": git_commit,
             "git/branch": git_branch,
         })
-    except:
+    except Exception:
         pass  # Git not available or not in a git repository
     
     return metadata

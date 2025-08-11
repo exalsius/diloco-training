@@ -7,7 +7,6 @@ from datetime import timedelta
 import torch
 import torch.distributed as dist
 from torch.amp import autocast
-from transformers import get_cosine_schedule_with_warmup
 
 import wandb
 from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger

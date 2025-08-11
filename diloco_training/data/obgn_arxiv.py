@@ -1,7 +1,5 @@
-import torch
-from torch_geometric.datasets import OGB_MAG
 from torch_geometric.transforms import ToUndirected
-from ogb.nodeproppred import PygNodePropPredDataset, Evaluator
+from ogb.nodeproppred import PygNodePropPredDataset
 from torch_geometric.loader import NeighborLoader
 from torch.utils.data.distributed import DistributedSampler
 
