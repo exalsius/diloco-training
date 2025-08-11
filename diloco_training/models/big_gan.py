@@ -1,19 +1,18 @@
 # train_biggan_deep_imagenet.py
 import os
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision import transforms, utils
-from torch.utils.data import DataLoader
-from datasets import load_dataset
+from torchvision import utils
 from tqdm import tqdm
 from diloco_training.data.imagenet import get_imagenet
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Optional
+
 # -------------------------------
 # BigGAN-Deep Generator & Discriminator
 # -------------------------------
+
 
 class SpectralNormConv2d(nn.Module):
     def __init__(self, *args, **kwargs):
@@ -59,8 +58,11 @@ class GBlock(nn.Module):
         self.conv1 = SpectralNormConv2d(in_channels, out_channels, 3, 1, 1)
         self.conv2 = SpectralNormConv2d(out_channels, out_channels, 3, 1, 1)
         self.upsample = upsample
-        self.shortcut = SpectralNormConv2d(in_channels, out_channels, 1, 1, 0) \
-            if in_channels != out_channels or upsample else nn.Identity()
+        self.shortcut = (
+            SpectralNormConv2d(in_channels, out_channels, 1, 1, 0)
+            if in_channels != out_channels or upsample
+            else nn.Identity()
+        )
 
     def forward(self, x, y):
         h = self.cbn1(x, y)
@@ -81,17 +83,19 @@ class Generator(nn.Module):
         self.z_dim = z_dim
         self.class_dim = class_dim
         self.embed = nn.Embedding(class_dim, z_dim)
-        self.linear = SpectralNormLinear(z_dim, 4*4*16*ch)
-        self.blocks = nn.ModuleList([
-            GBlock(16*ch, 16*ch, z_dim),   # 4x4 -> 8x8
-            GBlock(16*ch, 8*ch, z_dim),    # 8x8 -> 16x16
-            GBlock(8*ch, 4*ch, z_dim),     # 16x16 -> 32x32
-            GBlock(4*ch, 2*ch, z_dim),     # 32x32 -> 64x64
-            GBlock(2*ch, 1*ch, z_dim),     # 64x64 -> 128x128
-            GBlock(1*ch, 1*ch, z_dim),     # 128x128 -> 256x256
-        ])
-        self.bn = nn.BatchNorm2d(1*ch)
-        self.conv = nn.Conv2d(1*ch, 3, 3, 1, 1)
+        self.linear = SpectralNormLinear(z_dim, 4 * 4 * 16 * ch)
+        self.blocks = nn.ModuleList(
+            [
+                GBlock(16 * ch, 16 * ch, z_dim),  # 4x4 -> 8x8
+                GBlock(16 * ch, 8 * ch, z_dim),  # 8x8 -> 16x16
+                GBlock(8 * ch, 4 * ch, z_dim),  # 16x16 -> 32x32
+                GBlock(4 * ch, 2 * ch, z_dim),  # 32x32 -> 64x64
+                GBlock(2 * ch, 1 * ch, z_dim),  # 64x64 -> 128x128
+                GBlock(1 * ch, 1 * ch, z_dim),  # 128x128 -> 256x256
+            ]
+        )
+        self.bn = nn.BatchNorm2d(1 * ch)
+        self.conv = nn.Conv2d(1 * ch, 3, 3, 1, 1)
         self.tanh = nn.Tanh()
 
     def forward(self, z, y):
@@ -111,8 +115,11 @@ class DBlock(nn.Module):
         self.conv1 = SpectralNormConv2d(in_channels, out_channels, 3, 1, 1)
         self.conv2 = SpectralNormConv2d(out_channels, out_channels, 3, 1, 1)
         self.downsample = downsample
-        self.shortcut = SpectralNormConv2d(in_channels, out_channels, 1, 1, 0) \
-            if in_channels != out_channels or downsample else nn.Identity()
+        self.shortcut = (
+            SpectralNormConv2d(in_channels, out_channels, 1, 1, 0)
+            if in_channels != out_channels or downsample
+            else nn.Identity()
+        )
 
     def forward(self, x):
         h = F.relu(self.conv1(x))
@@ -127,16 +134,16 @@ class Discriminator(nn.Module):
     def __init__(self, class_dim=1000, ch=96):
         super().__init__()
         self.blocks = nn.Sequential(
-            DBlock(3, 1*ch),     # 256 -> 128
-            DBlock(1*ch, 2*ch),  # 128 -> 64
-            DBlock(2*ch, 4*ch),  # 64 -> 32
-            DBlock(4*ch, 8*ch),  # 32 -> 16
-            DBlock(8*ch, 16*ch), # 16 -> 8
-            DBlock(16*ch, 16*ch) # 8 -> 4
+            DBlock(3, 1 * ch),  # 256 -> 128
+            DBlock(1 * ch, 2 * ch),  # 128 -> 64
+            DBlock(2 * ch, 4 * ch),  # 64 -> 32
+            DBlock(4 * ch, 8 * ch),  # 32 -> 16
+            DBlock(8 * ch, 16 * ch),  # 16 -> 8
+            DBlock(16 * ch, 16 * ch),  # 8 -> 4
         )
         self.relu = nn.ReLU()
-        self.linear = SpectralNormLinear(16*ch, 1)
-        self.embed = SpectralNormLinear(class_dim, 16*ch)
+        self.linear = SpectralNormLinear(16 * ch, 1)
+        self.embed = SpectralNormLinear(class_dim, 16 * ch)
 
     def forward(self, x, y):
         h = self.blocks(x)
@@ -152,9 +159,11 @@ class Discriminator(nn.Module):
 # GAN Model with Loss Calculation
 # -------------------------------
 
+
 @dataclass
 class BigGANOutput:
     """Container for BigGAN outputs during training and inference."""
+
     loss: torch.Tensor
     d_loss: Optional[torch.Tensor] = None
     g_loss: Optional[torch.Tensor] = None
@@ -163,7 +172,7 @@ class BigGANOutput:
 
 class BigGANWithLoss(nn.Module):
     """BigGAN model with integrated loss calculation functionality for DiLoCo framework."""
-    
+
     def __init__(self, z_dim=128, class_dim=1000, ch=96):
         super().__init__()
         self.generator = Generator(z_dim=z_dim, class_dim=class_dim, ch=ch)
@@ -171,29 +180,29 @@ class BigGANWithLoss(nn.Module):
         self.z_dim = z_dim
         self.class_dim = class_dim
         self.training_mode = "discriminator"  # "discriminator" or "generator"
-        
+
     def set_training_mode(self, mode: str):
         """Set which component to train: 'discriminator' or 'generator'"""
         assert mode in ["discriminator", "generator"]
         self.training_mode = mode
-        
+
     def forward(self, image: torch.Tensor, label: torch.Tensor) -> BigGANOutput:
         """Forward pass through the BigGAN model compatible with DiLoCo framework."""
         batch_size = image.size(0)
         device = image.device
-        
+
         # Generate fake samples
         z = torch.randn(batch_size, self.z_dim, device=device)
         fake_labels = torch.randint(0, self.class_dim, (batch_size,), device=device)
         fake_images = self.generator(z, fake_labels)
-        
+
         if self.training_mode == "discriminator":
             # Train discriminator
             d_real = self.discriminator(image, label)
             d_fake = self.discriminator(fake_images.detach(), fake_labels)
             d_loss = -(d_real.mean() - d_fake.mean())
             return BigGANOutput(loss=d_loss, d_loss=d_loss, logits=d_real)
-            
+
         else:  # generator mode
             # Train generator
             d_fake_for_gen = self.discriminator(fake_images, fake_labels)
@@ -211,29 +220,31 @@ def get_biggan(z_dim: int = 128, class_dim: int = 1000, ch: int = 96):
 # Training Loop & Dataset Loading (Reference Implementation)
 # -------------------------------
 
+
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 
 def main():
     """Example usage - simplified for DiLoCo integration"""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
+
     _, model = get_biggan(z_dim=128, class_dim=1000, ch=96)
     model = model.to(device)
-    
+
     print(f"BigGAN Parameters: {count_parameters(model):,}")
-    
+
     # Test with dummy data
     batch_size = 2
     dummy_images = torch.randn(batch_size, 3, 256, 256, device=device)
     dummy_labels = torch.randint(0, 1000, (batch_size,), device=device)
-    
+
     # Test discriminator training
     model.set_training_mode("discriminator")
     d_output = model(dummy_images, dummy_labels)
     print(f"Discriminator loss: {d_output.loss.item()}")
-    
-    # Test generator training  
+
+    # Test generator training
     model.set_training_mode("generator")
     g_output = model(dummy_images, dummy_labels)
     print(f"Generator loss: {g_output.loss.item()}")
@@ -249,12 +260,14 @@ def main():
         per_device_train_batch_size=train_batch_size,
         split="train",
         image_size=256,
-        dataset_name="ILSVRC/imagenet-1k"
+        dataset_name="ILSVRC/imagenet-1k",
     )
 
     # Optimizers for generator and discriminator components
     opt_G = torch.optim.Adam(model.generator.parameters(), lr=2e-4, betas=(0.0, 0.999))
-    opt_D = torch.optim.Adam(model.discriminator.parameters(), lr=2e-4, betas=(0.0, 0.999))
+    opt_D = torch.optim.Adam(
+        model.discriminator.parameters(), lr=2e-4, betas=(0.0, 0.999)
+    )
 
     z_dim = 128
 
@@ -262,11 +275,7 @@ def main():
         for i, batch in enumerate(tqdm(train_loader)):
             real, labels = batch["image"].to(device), batch["label"].to(device)
             batch_size = real.size(0)
-            
-            # Use the wrapped model for training
-            output = model(real, labels)
-            total_loss = output.loss
-            
+
             # Generator and discriminator steps using the wrapped model components
             z = torch.randn(batch_size, z_dim, device=device)
             fake_labels = torch.randint(0, 1000, (batch_size,), device=device)
@@ -280,7 +289,7 @@ def main():
             d_loss.backward()
             opt_D.step()
 
-            # Generator step  
+            # Generator step
             fake = model.generator(z, fake_labels)
             g_loss = -model.discriminator(fake, fake_labels).mean()
             opt_G.zero_grad()
@@ -293,20 +302,30 @@ def main():
                     z_sample = torch.randn(16, z_dim, device=device)
                     labels_sample = torch.randint(0, 1000, (16,), device=device)
                     sample_images = model.generator(z_sample, labels_sample)
-                    utils.save_image(sample_images, f"samples/fake_epoch{epoch}_iter{i}.png", 
-                                   normalize=True, scale_each=True, nrow=4)
+                    utils.save_image(
+                        sample_images,
+                        f"samples/fake_epoch{epoch}_iter{i}.png",
+                        normalize=True,
+                        scale_each=True,
+                        nrow=4,
+                    )
 
         print(f"Epoch {epoch}: D_loss={d_loss.item():.4f}, G_loss={g_loss.item():.4f}")
-        
+
         # Save final images for the epoch
         with torch.no_grad():
             z_sample = torch.randn(16, z_dim, device=device)
             labels_sample = torch.randint(0, 1000, (16,), device=device)
             sample_images = model.generator(z_sample, labels_sample)
-            utils.save_image(sample_images, f"samples/fake_epoch{epoch}.png", 
-                           normalize=True, scale_each=True, nrow=4)
+            utils.save_image(
+                sample_images,
+                f"samples/fake_epoch{epoch}.png",
+                normalize=True,
+                scale_each=True,
+                nrow=4,
+            )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     os.makedirs("samples", exist_ok=True)
     main()

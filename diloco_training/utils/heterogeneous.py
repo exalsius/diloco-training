@@ -3,6 +3,7 @@ import time
 import torch.distributed as dist
 from argparse import Namespace
 
+
 def profile_gpu(
     trainer_class,
     args,
@@ -77,4 +78,3 @@ def synchronize_batch_and_steps(trainer_class, args):
             assigned_steps = group_steps
 
     return batch_size, assigned_steps, all_info
-

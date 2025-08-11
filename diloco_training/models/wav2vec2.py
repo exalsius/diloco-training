@@ -33,5 +33,3 @@ if __name__ == "__main__":
     train_loader, val_loader = get_librispeech(1, 0, 16, "train.clean.100")
     config, model = get_wav2vec2()
     print(f"Number of model parameters: {sum(p.numel() for p in model.parameters())}")
-
-

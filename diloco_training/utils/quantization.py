@@ -52,7 +52,11 @@ def distributed_reduce_quantized(tensor, op=dist.ReduceOp.AVG):
     if rank == 0:
         # Dequantize all tensors
         dequantized_tensors = [
-            dequantize_tensor(gathered_tensors_q[i], gathered_qmins[i].item(), gathered_qmaxs[i].item())
+            dequantize_tensor(
+                gathered_tensors_q[i],
+                gathered_qmins[i].item(),
+                gathered_qmaxs[i].item(),
+            )
             for i in range(world_size)
         ]
         # Reduce in float32

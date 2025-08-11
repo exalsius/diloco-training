@@ -12,8 +12,10 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 import datasets
-datasets.config.STREAMING_READ_MAX_RETRIES = 60  
-datasets.config.STREAMING_READ_RETRY_INTERVAL = 5  
+
+datasets.config.STREAMING_READ_MAX_RETRIES = 60
+datasets.config.STREAMING_READ_RETRY_INTERVAL = 5
+
 
 @dataclass
 class DatasetConfig:
