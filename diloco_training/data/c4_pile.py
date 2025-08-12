@@ -38,10 +38,12 @@ class StreamingC4Dataset(IterableDataset):
     def __init__(self, dataset_name, rank, world_size, split="train"):
         if split == "validation":
             self.dataset = load_dataset(
-                dataset_name, "en", split=split, streaming=True
+                dataset_name, "en", split=split, streaming=True, trust_remote_code=True
             ).shuffle(buffer_size=10000)
         else:
-            self.dataset = load_dataset(dataset_name, "en", split=split, streaming=True)
+            self.dataset = load_dataset(
+                dataset_name, "en", split=split, streaming=True, trust_remote_code=True
+            )
         self.rank = rank
         self.split = split
         self.world_size = world_size

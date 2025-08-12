@@ -20,11 +20,13 @@ class StreamingLibriSpeechDataset(IterableDataset):
         """
         if split == "validation.clean":
             self.dataset = load_dataset(
-                dataset_name, split=split, streaming=True
+                dataset_name, split=split, streaming=True, trust_remote_code=True
             ).shuffle(buffer_size=10000)
         else:
             # For training, we don't shuffle
-            self.dataset = load_dataset(dataset_name, split=split, streaming=True)
+            self.dataset = load_dataset(
+                dataset_name, split=split, streaming=True, trust_remote_code=True
+            )
         self.rank = rank
         self.world_size = world_size
         self.processor = Wav2Vec2Processor.from_pretrained(

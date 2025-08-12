@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'",
@@ -447,12 +447,14 @@ source = { editable = "." }
 dependencies = [
     { name = "datasets" },
     { name = "einops" },
+    { name = "huggingface-hub" },
     { name = "librosa" },
     { name = "matplotlib" },
     { name = "ogb" },
     { name = "pandas" },
     { name = "pytorch-pretrained-biggan" },
     { name = "seaborn" },
+    { name = "setuptools" },
     { name = "soundfile" },
     { name = "torch" },
     { name = "torch-geometric" },
@@ -477,6 +479,7 @@ test = [
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
+    { name = "ruff" },
 ]
 
 [package.metadata]
@@ -484,6 +487,7 @@ requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=25.1.0" },
     { name = "datasets", specifier = "==3.4.0" },
     { name = "einops", specifier = ">=0.8.1" },
+    { name = "huggingface-hub", specifier = ">=0.29.3" },
     { name = "isort", marker = "extra == 'dev'", specifier = ">=6.0.1" },
     { name = "librosa", specifier = ">=0.10.2.post1" },
     { name = "matplotlib", specifier = ">=3.10.1" },
@@ -495,6 +499,7 @@ requires-dist = [
     { name = "pytorch-pretrained-biggan", specifier = ">=0.1.1" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.9.7" },
     { name = "seaborn", specifier = ">=0.13.2" },
+    { name = "setuptools", specifier = ">=76.1.0" },
     { name = "soundfile", specifier = ">=0.13.1" },
     { name = "torch", specifier = ">=2.5.0" },
     { name = "torch-geometric", specifier = ">=2.6.1" },
@@ -506,7 +511,10 @@ requires-dist = [
 provides-extras = ["dev", "test"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8.3.5" }]
+dev = [
+    { name = "pytest", specifier = ">=8.3.5" },
+    { name = "ruff", specifier = ">=0.11.0" },
+]
 
 [[package]]
 name = "distlib"

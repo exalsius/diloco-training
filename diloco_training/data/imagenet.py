@@ -29,12 +29,18 @@ class StreamingImageNetDataset(IterableDataset):
         self.split = split
         if split == "validation":
             self.dataset = load_dataset(
-                dataset_name, split=split, cache_dir="/workspace/datasets"
+                dataset_name,
+                split=split,
+                cache_dir="/workspace/datasets",
+                trust_remote_code=True,
             )
         else:
             # For training, we don't shuffle
             self.dataset = load_dataset(
-                dataset_name, split=split, cache_dir="/workspace/datasets"
+                dataset_name,
+                split=split,
+                cache_dir="/workspace/datasets",
+                trust_remote_code=True,
             )
         self.rank = rank
         self.world_size = world_size

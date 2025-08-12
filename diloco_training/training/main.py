@@ -1,6 +1,7 @@
 import argparse
 import os
 import torch.distributed as dist
+from huggingface_hub import login
 from diloco_training.utils.diloco_utils import ddp_setup, wandb_setup
 from diloco_training.training.distributed_trainer import DistributedTrainer
 from diloco_training.utils.metrics_logger import collect_environment_metadata
@@ -13,6 +14,8 @@ def main(args):
     local_rank = int(os.environ["LOCAL_RANK"])
     global_rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
+    wandb_user_key = os.environ.get("WANDB_USER_KEY", None)
+    hf_token = os.environ.get("HUGGINGFACE_TOKEN", None)
     setattr(args, "local_rank", local_rank)
     setattr(args, "global_rank", global_rank)
     setattr(args, "world_size", world_size)
@@ -31,7 +34,7 @@ def main(args):
     # Initialize WandB with enhanced metadata
     wandb_setup(
         local_rank=args.local_rank,
-        user_key=args.wandb_user_key,
+        user_key=wandb_user_key,
         project_name=args.wandb_project_name,
         run_id=args.wandb_run_id,
         group=args.wandb_group,
@@ -39,6 +42,9 @@ def main(args):
         metadata=env_metadata,
         args=args,
     )
+
+    #hf login
+    login(token=hf_token)
 
     # Initialize and run trainer
     trainer = DistributedTrainer(args)
@@ -86,9 +92,6 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--device", type=str, default="cuda", choices=["cuda", "cpu"], help="Device."
-    )
-    parser.add_argument(
-        "--wandb_user_key", type=str, default=None, help="WandB user key."
     )
     parser.add_argument(
         "--wandb_project_name",
