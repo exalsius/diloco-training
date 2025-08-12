@@ -43,7 +43,7 @@ def main(args):
         args=args,
     )
 
-    #hf login
+    # hf login
     login(token=hf_token)
 
     # Initialize and run trainer
