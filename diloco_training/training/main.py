@@ -19,7 +19,6 @@ def main(args):
     setattr(args, "local_rank", local_rank)
     setattr(args, "global_rank", global_rank)
     setattr(args, "world_size", world_size)
-
     ddp_setup(
         master_addr=master_addr,
         master_port=master_port,

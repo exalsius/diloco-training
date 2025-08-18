@@ -1,0 +1,2 @@
+#!/bin/bash
+TORCH_DISTRIBUTED_DEBUG=DETAIL NCCL_SOCKET_FAMILY=AF_INET NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,ENV NCCL_ASYNC_ERROR_HANDLING=1 PYTHONWARNINGS=default torchrun --nnodes=2 --nproc_per_node=1 --rdzv_backend=c10d --rdzv_endpoint=10.42.0.52:29500 diloco_training/training/main.py --model gpt-neo-x --dataset c4  --local_steps 2 --lr 4e-4 --outer_lr 0.7 --warmup_steps 1000 --total_steps 8 --per_device_train_batch_size 64 --batch_size 512 --optim_method sgd --checkpoint_interval 4 --wandb_project_name test_sasho --wandb_group test_sasho_2
