@@ -138,6 +138,7 @@ class DistributedTrainer:
             logger.info(f"Profiling results: {all_info}, Local_steps: {local_steps}")
         self.per_device_train_batch_size = per_device_batch_size
         self.local_steps = local_steps
+        self.heterogeneous = False
 
     def initialize_model(self, model_class):
         config, model = model_class()
