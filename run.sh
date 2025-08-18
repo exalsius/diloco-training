@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Environment variables
-export TORCH_DISTRIBUTED_DEBUG=DETAIL
+# export TORCH_DISTRIBUTED_DEBUG=DETAIL
 export NCCL_SOCKET_FAMILY=AF_INET
 export NCCL_DEBUG=INFO
 export NCCL_DEBUG_SUBSYS=INIT,ENV
@@ -10,7 +10,7 @@ export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export GLOO_USE_V6=0
 export GLOO_SOCKET_IFNAME=eth0 
 # soeren: this is my wandb api key
-export WANDB_USER_KEY=2ac3f7cbf52ae24babda13661f93a73999ae6904
+export WANDB_USER_KEY=6800d2a81420c3adf2b8f658e79f63bd4003b3e1
 export HUGGINGFACE_TOKEN=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
 export TORCH_CPP_LOG_LEVEL=ERROR
 
@@ -36,5 +36,4 @@ torchrun \
     --wandb_project_name test_sasho \
     --wandb_group test_sasho_2 \
     --master_address 10.42.0.52 \
-    --master_port 29500
 
