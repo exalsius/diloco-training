@@ -20,12 +20,14 @@ def ddp_setup(
     master_addr="localhost",
     master_port="12355",
     world_size=1,
+    global_rank=0,
     local_rank=0,
     device="cuda",
 ):
     logger.info(
-        "Training on %s with local rank: %s, world size: %s",
+        "Training on %s with global rank: %s, local rank: %s, world size: %s",
         device,
+        global_rank,
         local_rank,
         world_size,
     )
@@ -34,15 +36,16 @@ def ddp_setup(
         backend=backend,
         init_method=f"tcp://{master_addr}:{master_port}",
         world_size=world_size,
-        rank=local_rank,
-        timeout=timedelta(hours=10),
+        rank=global_rank,
+        timeout=timedelta(minutes=10),
     )
     if device == "cuda":
-        torch.cuda.set_device(local_rank)
+        torch.cuda.set_device(global_rank)
 
 
 def wandb_setup(
     local_rank,
+    global_rank,
     user_key,
     project_name,
     run_id=None,
@@ -88,7 +91,7 @@ def wandb_setup(
             wandb.init(
                 project=project_name,
                 group=group,
-                name=f"{group}-worker-{local_rank}",
+                name=f"{group}-worker-{global_rank}-{local_rank}",
                 id=run_id,
                 resume="allow",
                 config=wandb_config,

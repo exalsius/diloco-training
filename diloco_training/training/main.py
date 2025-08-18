@@ -23,6 +23,7 @@ def main(args):
     ddp_setup(
         master_addr=master_addr,
         master_port=master_port,
+        global_rank=global_rank,
         local_rank=local_rank,
         world_size=world_size,
         device=args.device,
@@ -34,6 +35,7 @@ def main(args):
     # Initialize WandB with enhanced metadata
     wandb_setup(
         local_rank=args.local_rank,
+        global_rank=args.global_rank,
         user_key=wandb_user_key,
         project_name=args.wandb_project_name,
         run_id=args.wandb_run_id,
