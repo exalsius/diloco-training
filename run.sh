@@ -17,23 +17,23 @@ export TORCH_CPP_LOG_LEVEL=ERROR
 # Torchrun command
 torchrun \
   --nnodes=2 \
-  --nproc_per_node=1 \
+  --nproc_per_node=2 \
   --node_rank=0 \
   --rdzv_backend=c10d \
   --rdzv_endpoint=10.42.0.52:29500 \
   diloco_training/training/main.py \
     --model gpt-neo-x \
     --dataset c4 \
-    --local_steps 2 \
+    --local_steps 128 \
     --lr 4e-4 \
     --outer_lr 0.7 \
     --warmup_steps 1000 \
-    --total_steps 8 \
+    --total_steps 30000 \
     --per_device_train_batch_size 64 \
     --batch_size 512 \
     --optim_method sgd \
     --checkpoint_interval 4 \
-    --wandb_project_name test_sasho \
-    --wandb_group test_sasho_2 \
+    --wandb_project_name SPRIND \
+    --wandb_group SPRIND-c4-diloco \
     --master_address 10.42.0.52 \
 

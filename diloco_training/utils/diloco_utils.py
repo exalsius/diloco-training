@@ -54,56 +54,56 @@ def wandb_setup(
     metadata=None,
     args=None,
 ):
-    if local_rank == 0:
-        # Prepare wandb configuration
-        wandb_config = {
-            "description": experiment_description
-            or "DiLoCo distributed training experiment",
-        }
 
-        # Add metadata to config
-        if metadata:
-            wandb_config.update(metadata)
+    # Prepare wandb configuration
+    wandb_config = {
+        "description": experiment_description
+        or "DiLoCo distributed training experiment",
+    }
 
-        # Add all args to config
-        if args:
-            wandb_config.update({f"args/{k}": v for k, v in vars(args).items()})
+    # Add metadata to config
+    if metadata:
+        wandb_config.update(metadata)
 
-        # Set up tags
-        tags = getattr(args, "experiment_tags", []) if args else []
-        tags.extend(
-            [
-                f"optim_{args.optim_method}" if args else "unknown",
-                f"device_{args.device}" if args else "unknown",
-            ]
+    # Add all args to config
+    if args:
+        wandb_config.update({f"args/{k}": v for k, v in vars(args).items()})
+
+    # Set up tags
+    tags = getattr(args, "experiment_tags", []) if args else []
+    tags.extend(
+        [
+            f"optim_{args.optim_method}" if args else "unknown",
+            f"device_{args.device}" if args else "unknown",
+        ]
+    )
+
+    if user_key is None:
+        os.environ["WANDB_MODE"] = "offline"
+        wandb.init(
+            project=project_name,
+            config=wandb_config,
+            tags=tags,
+            notes=experiment_description,
+        )
+    else:
+        wandb.login(key=user_key)
+        wandb.init(
+            project=project_name,
+            group=group,
+            name=f"{group}-worker-{global_rank}-{local_rank}",
+            id=run_id,
+            resume="allow",
+            config=wandb_config,
+            tags=tags,
+            notes=experiment_description,
         )
 
-        if user_key is None:
-            os.environ["WANDB_MODE"] = "offline"
-            wandb.init(
-                project=project_name,
-                config=wandb_config,
-                tags=tags,
-                notes=experiment_description,
-            )
-        else:
-            wandb.login(key=user_key)
-            wandb.init(
-                project=project_name,
-                group=group,
-                name=f"{group}-worker-{global_rank}-{local_rank}",
-                id=run_id,
-                resume="allow",
-                config=wandb_config,
-                tags=tags,
-                notes=experiment_description,
-            )
+    # Enable system monitoring
+    if args and args.device == "cuda":
+        wandb.watch_called = False  # Reset watch state
 
-        # Enable system monitoring
-        if args and args.device == "cuda":
-            wandb.watch_called = False  # Reset watch state
-
-        logger.info(f"WandB initialized with description: {experiment_description}")
+    logger.info(f"WandB initialized with description: {experiment_description}")
 
 
 def get_offloaded_param(outer_optimizer: torch.optim.Optimizer, device="cuda"):
