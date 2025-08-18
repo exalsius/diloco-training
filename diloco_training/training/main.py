@@ -9,7 +9,6 @@ from diloco_training.utils.metrics_logger import collect_environment_metadata
 
 def main(args):
     # Setup distributed training
-    master_addr = os.environ["MASTER_ADDR"]
     master_port = os.environ["MASTER_PORT"]
     local_rank = int(os.environ["LOCAL_RANK"])
     global_rank = int(os.environ["RANK"])
@@ -134,6 +133,6 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--master_address", type=str, help="This is IP address of the master"
-        )
+    )
     args = parser.parse_args()
     main(args)
