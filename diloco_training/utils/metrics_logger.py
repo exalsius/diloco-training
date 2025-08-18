@@ -69,7 +69,8 @@ class MetricsLogger:
                 ]
                 / (1024 * 1024),
                 "comm/sync_count": self.communication_metrics["sync_count"],
-                "rank": self.local_rank,
+                "local_rank": self.local_rank,
+                "global_rank": self.global_rank,
             }
         )
 
@@ -83,7 +84,8 @@ class MetricsLogger:
                     self.communication_metrics["reduce_wait_times"]
                 )
                 / len(self.communication_metrics["reduce_wait_times"]),
-                "rank": self.local_rank,
+                "local_rank": self.local_rank,
+                "global_rank": self.global_rank,
             }
         )
 
@@ -97,7 +99,8 @@ class MetricsLogger:
                     self.communication_metrics["reduce_processing_times"]
                 )
                 / len(self.communication_metrics["reduce_processing_times"]),
-                "rank": self.local_rank,
+                "local_rank": self.local_rank,
+                "global_rank": self.global_rank,
             }
         )
 
@@ -113,7 +116,8 @@ class MetricsLogger:
                 "system/cpu_percent": cpu_percent,
                 "system/memory_usage_mb": memory_info.rss / (1024 * 1024),
                 "system/memory_percent": memory_percent,
-                "rank": self.local_rank,
+                "local_rank": self.local_rank,
+                "global_rank": self.global_rank,
             }
 
             # GPU metrics if available
@@ -148,7 +152,8 @@ class MetricsLogger:
                 "performance/time_per_sample": (
                     time_elapsed / samples_processed if samples_processed > 0 else 0
                 ),
-                "rank": self.local_rank,
+                "local_rank": self.local_rank,
+                "global_rank": self.global_rank,
             }
         )
 
@@ -162,7 +167,8 @@ class MetricsLogger:
                 torch.exp(torch.tensor(loss)).item() if loss_type != "gan" else loss
             ),
             "step": step,
-            "rank": self.local_rank,
+            "local_rank": self.local_rank,
+            "global_rank": self.global_rank,
         }
 
         # Add any additional metrics

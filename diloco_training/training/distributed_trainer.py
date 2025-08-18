@@ -138,6 +138,7 @@ class DistributedTrainer:
             logger.info(f"Profiling results: {all_info}, Local_steps: {local_steps}")
         self.per_device_train_batch_size = per_device_batch_size
         self.local_steps = local_steps
+        self.heterogeneous = False
 
     def initialize_model(self, model_class):
         config, model = model_class()
@@ -273,7 +274,7 @@ class DistributedTrainer:
 
             if step_within_grad_acc == 0:
                 logger.info(
-                    f"Local rank {self.local_rank} - Real Step {real_step} - Loss: {self.loss_batch.item()}"
+                    f"Global rank {self.global_rank} - Local rank {self.local_rank} - Real Step {real_step} - Loss: {self.loss_batch.item()}"
                 )
                 self.scaler.step(self.inner_optimizer)
                 self.scaler.update()
@@ -373,7 +374,7 @@ class DistributedTrainer:
                 # Start timing for optimizer update
                 self.metrics_logger.start_timer("inner_optimizer_step")
                 logger.info(
-                    f"Local rank {self.local_rank} - Real Step {real_step} - Loss: {self.loss_batch.item()}, current step sync interval: {self.local_steps}"
+                    f"Global rank {self.global_rank} - Local rank {self.local_rank} - Real Step {real_step} - Loss: {self.loss_batch.item()}, current step sync interval: {self.local_steps}"
                 )
                 update_inner_optimizer(
                     self.inner_optimizer, self.scheduler, self.model, self.scaler
@@ -418,7 +419,7 @@ class DistributedTrainer:
                     # Start timing for outer optimizer sync
                     self.metrics_logger.start_timer("outer_sync")
                     logger.info(
-                        f"Local rank {self.local_rank} - Syncing outer optimizer at step {real_step}"
+                        f"Global rank {self.global_rank} - Local rank {self.local_rank} - Syncing outer optimizer at step {real_step}"
                     )
                     main_param = [
                         param
@@ -611,7 +612,7 @@ class DistributedTrainer:
 
             if step_within_grad_acc == 0:
                 logger.info(
-                    f"Local rank {self.local_rank} - Real Step {real_step} - D Loss: {d_loss.item():.4f}, G Loss: {g_loss.item():.4f}"
+                    f"Global rank {self.global_rank} - Local rank {self.local_rank} - Real Step {real_step} - D Loss: {d_loss.item():.4f}, G Loss: {g_loss.item():.4f}"
                 )
 
                 # Update both optimizers with timing
@@ -656,7 +657,7 @@ class DistributedTrainer:
                     self.count_inner_optimizer_steps = 0
                     self.metrics_logger.start_timer("gan_outer_sync")
                     logger.info(
-                        f"Local rank {self.local_rank} - Syncing GAN outer optimizers at step {real_step}"
+                        f"Global rank {self.global_rank} - Local rank {self.local_rank} - Syncing GAN outer optimizers at step {real_step}"
                     )
 
                     # Sync discriminator
@@ -869,7 +870,7 @@ class DistributedTrainer:
         """Sync outer optimizers for both GAN and non-GAN models"""
         self.count_inner_optimizer_steps = 0
         logger.info(
-            f"Local rank {self.local_rank} - Syncing outer optimizer at step {real_step}"
+            f"Global rank {self.global_rank} - Local rank {self.local_rank} - Syncing outer optimizer at step {real_step}"
         )
 
         if self.is_gan:

@@ -9,7 +9,6 @@ from diloco_training.utils.metrics_logger import collect_environment_metadata
 
 def main(args):
     # Setup distributed training
-    master_addr = os.environ["MASTER_ADDR"]
     master_port = os.environ["MASTER_PORT"]
     local_rank = int(os.environ["LOCAL_RANK"])
     global_rank = int(os.environ["RANK"])
@@ -19,10 +18,10 @@ def main(args):
     setattr(args, "local_rank", local_rank)
     setattr(args, "global_rank", global_rank)
     setattr(args, "world_size", world_size)
-
     ddp_setup(
-        master_addr=master_addr,
+        master_addr=args.master_address,
         master_port=master_port,
+        global_rank=global_rank,
         local_rank=local_rank,
         world_size=world_size,
         device=args.device,
@@ -34,6 +33,7 @@ def main(args):
     # Initialize WandB with enhanced metadata
     wandb_setup(
         local_rank=args.local_rank,
+        global_rank=args.global_rank,
         user_key=wandb_user_key,
         project_name=args.wandb_project_name,
         run_id=args.wandb_run_id,
@@ -131,6 +131,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--seed", type=int, default=42, help="Random seed for reproducibility."
     )
-
+    parser.add_argument(
+        "--master_address", type=str, help="This is IP address of the master"
+    )
     args = parser.parse_args()
     main(args)
