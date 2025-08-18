@@ -40,7 +40,7 @@ def ddp_setup(
         timeout=timedelta(minutes=10),
     )
     if device == "cuda":
-        torch.cuda.set_device(global_rank)
+        torch.cuda.set_device(local_rank)
 
 
 def wandb_setup(

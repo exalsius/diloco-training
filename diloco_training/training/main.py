@@ -20,7 +20,7 @@ def main(args):
     setattr(args, "global_rank", global_rank)
     setattr(args, "world_size", world_size)
     ddp_setup(
-        master_addr=master_addr,
+        master_addr=args.master_address,
         master_port=master_port,
         global_rank=global_rank,
         local_rank=local_rank,
@@ -132,6 +132,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--seed", type=int, default=42, help="Random seed for reproducibility."
     )
-
+    parser.add_argument(
+        "--master_address", type=str, help="This is IP address of the master"
+        )
     args = parser.parse_args()
     main(args)
