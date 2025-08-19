@@ -192,8 +192,9 @@ def evaluate_model(eval_dataloader, model, global_rank, local_rank, device):
         return None
 
 
-def log_inner_stats(local_rank, real_step, loss_batch, sync_count):
+def log_inner_stats(global_rank, local_rank, real_step, loss_batch, sync_count):
     dict_to_log = {
+        "global_rank": global_rank,
         "local_rank": local_rank,
         "inner_loss": loss_batch.item(),
         "real_step": real_step,

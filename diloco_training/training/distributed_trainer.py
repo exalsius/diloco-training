@@ -162,7 +162,7 @@ class DistributedTrainer:
         else:
             train_dataloader, val_dataloader = dataset_class(
                 self.world_size,
-                self.local_rank,
+                self.global_rank,
                 self.args.per_device_train_batch_size,
                 split="train",
             )
@@ -408,6 +408,7 @@ class DistributedTrainer:
                         )
 
                 log_inner_stats(
+                    self.global_rank,
                     self.local_rank,
                     real_step,
                     self.loss_batch,
@@ -646,7 +647,7 @@ class DistributedTrainer:
                     self.metrics_logger.log_system_metrics()
 
                 log_inner_stats(
-                    self.local_rank, real_step, self.loss_batch, self.sync_count
+                    self.global_rank, self.local_rank, real_step, self.loss_batch, self.sync_count
                 )
 
                 # Handle outer optimizer sync for DiLoCo
