@@ -44,9 +44,9 @@ def distributed_reduce_quantized(tensor, op=dist.ReduceOp.AVG):
     gathered_qmaxs = [torch.zeros(1, device=tensor.device) for _ in range(world_size)]
 
     # Gather quantized tensors and params from all ranks
-    dist.all_gather(gathered_tensors_q, tensor_q)
-    dist.all_gather(gathered_qmins, qmin_tensor)
-    dist.all_gather(gathered_qmaxs, qmax_tensor)
+    dist.all_gather(gathered_tensors_q, tensor_q, async_op=True)
+    dist.all_gather(gathered_qmins, qmin_tensor, async_op=True)
+    dist.all_gather(gathered_qmaxs, qmax_tensor, async_op=True)
 
     # Only rank 0 performs reduction and broadcasts result in 8-bit
     if rank == 0:
@@ -77,9 +77,9 @@ def distributed_reduce_quantized(tensor, op=dist.ReduceOp.AVG):
         rqmax_tensor = torch.zeros(1, device=tensor.device)
 
     # Broadcast quantized reduced tensor and params
-    dist.broadcast(reduced_q, src=0)
-    dist.broadcast(rqmin_tensor, src=0)
-    dist.broadcast(rqmax_tensor, src=0)
+    dist.broadcast(reduced_q, src=0, async_op=True)
+    dist.broadcast(rqmin_tensor, src=0, async_op=True)
+    dist.broadcast(rqmax_tensor, src=0, async_op=True)
 
     # Dequantize locally
     result = dequantize_tensor(reduced_q, rqmin_tensor.item(), rqmax_tensor.item())

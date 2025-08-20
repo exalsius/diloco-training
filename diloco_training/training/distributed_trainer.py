@@ -51,6 +51,12 @@ class DistributedTrainer:
         self.real_step = 0
         self.count_inner_optimizer_steps = 0
         self.quantization = args.quantization
+        if not self.heterogeneous:
+            local_steps_list = [0 for _ in range(self.world_size)]
+            dist.all_gather_object(local_steps_list, self.local_steps)
+            self.sum_local_steps = sum(local_steps_list)
+        else:
+            self.sum_local_steps=10
         # Initialize model
         model_class = MODEL_REGISTRY.get(args.model)
         assert model_class, f"Model {args.model} not found"
@@ -447,6 +453,7 @@ class DistributedTrainer:
                         device=self.device,
                         quantization=self.quantization,
                         metrics_logger=self.metrics_logger,
+                        sum_local_steps=self.sum_local_steps,
                     )
                     self.params_offloaded = get_offloaded_param(
                         self.outer_optimizer, device=self.device
@@ -470,6 +477,8 @@ class DistributedTrainer:
                         sync_time=sync_time,
                         bytes_sent_mb=bytes_sent / (1024 * 1024),
                     )
+                    logger.info(f"Global rank {self.global_rank} - Local rank {self.local_rank} - Outer optimizer synced at step {real_step}")
+
 
                 if real_step % self.checkpoint_interval == 0 and not self.heterogeneous:
                     # Start timing for evaluation and checkpointing
@@ -530,6 +539,7 @@ class DistributedTrainer:
                     self.local_steps,
                     device=self.device,
                     metrics_logger=self.metrics_logger,
+                    sum_local_steps=self.sum_local_steps,
                 )
                 self.params_offloaded = get_offloaded_param(
                     self.outer_optimizer, device=self.device
@@ -694,6 +704,7 @@ class DistributedTrainer:
                         device=self.device,
                         quantization=self.quantization,
                         metrics_logger=self.metrics_logger,
+                        sum_local_steps=self.sum_local_steps,
                     )
                     self.params_offloaded_d = get_offloaded_param(
                         self.outer_optimizer_d, device=self.device
@@ -715,6 +726,7 @@ class DistributedTrainer:
                         device=self.device,
                         quantization=self.quantization,
                         metrics_logger=self.metrics_logger,
+                        sum_local_steps=self.sum_local_steps,
                     )
                     self.params_offloaded_g = get_offloaded_param(
                         self.outer_optimizer_g, device=self.device
@@ -799,6 +811,7 @@ class DistributedTrainer:
                         device=self.device,
                         quantization=self.quantization,
                         metrics_logger=self.metrics_logger,
+                        sum_local_steps=self.sum_local_steps,
                     )
                     self.params_offloaded_d = get_offloaded_param(
                         self.outer_optimizer_d, device=self.device
@@ -819,6 +832,7 @@ class DistributedTrainer:
                         device=self.device,
                         quantization=self.quantization,
                         metrics_logger=self.metrics_logger,
+                        sum_local_steps=self.sum_local_steps,
                     )
                     self.params_offloaded_g = get_offloaded_param(
                         self.outer_optimizer_g, device=self.device
@@ -909,6 +923,7 @@ class DistributedTrainer:
                 self.local_steps,
                 device=self.device,
                 quantization=self.quantization,
+                sum_local_steps=self.sum_local_steps
             )
             self.params_offloaded_d = get_offloaded_param(
                 self.outer_optimizer_d, device=self.device

@@ -275,14 +275,13 @@ def update_outer_optimizer(
     device="cuda",
     quantization=False,
     metrics_logger=None,
+    sum_local_steps=10,
 ):
     # Start timing for reduce operation
     reduce_start_time = time.time()
 
     bytes_sent = 0
-    local_steps_list = [0 for _ in range(world_size)]
-    dist.all_gather_object(local_steps_list, local_steps)
-    sum_local_steps = sum(local_steps_list)
+    
 
     # Time the wait for reduce to start (if there's synchronization overhead)
     reduce_processing_start = time.time()
@@ -311,7 +310,7 @@ def update_outer_optimizer(
                     param.grad.div_(world_size)
 
             else:
-                dist.all_reduce(param.grad, op=op)
+                dist.all_reduce(param.grad, op=op, async_op=True)
                 # Manual averaging after SUM since dist.ReduceOp.AVG is not supported with gloo
                 # and we use dist.ReduceOp.SUM instead
                 if device == "cpu":
