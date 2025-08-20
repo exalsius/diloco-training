@@ -132,19 +132,26 @@ class DistributedTrainer:
 
     def heterogeneous_profiling(self):
         if dist.is_initialized() and self.heterogeneous:
-            per_device_batch_size, local_steps, all_info = synchronize_batch_and_steps(
-                DistributedTrainer, self.args
-            )
+            (
+                per_device_batch_size,
+                local_steps,
+                total_steps,
+                checkpoint_interval,
+                all_info,
+            ) = synchronize_batch_and_steps(DistributedTrainer, self.args)
             logger.info(f"Profiling results: {all_info}, Local_steps: {local_steps}")
         self.per_device_train_batch_size = per_device_batch_size
         self.local_steps = local_steps
+        self.total_steps = total_steps
+        self.checkpoint_interval = checkpoint_interval
         self.heterogeneous = False
 
     def initialize_model(self, model_class):
         config, model = model_class()
         model = model.to(self.device)
-        for param in model.parameters():
-            dist.broadcast(param.data, src=0)
+        if not self.heterogeneous:
+            for param in model.parameters():
+                dist.broadcast(param.data, src=0)
         if self.optim_method == "ddp":
             model = torch.nn.parallel.DistributedDataParallel(
                 model, device_ids=[self.local_rank] if self.device == "cuda" else None
@@ -415,7 +422,10 @@ class DistributedTrainer:
                     self.sync_count,
                 )
 
-                if self.count_inner_optimizer_steps % self.local_steps == 0:
+                if (
+                    self.count_inner_optimizer_steps % self.local_steps == 0
+                    and not self.heterogeneous
+                ):
                     self.count_inner_optimizer_steps = 0
                     # Start timing for outer optimizer sync
                     self.metrics_logger.start_timer("outer_sync")
@@ -499,6 +509,8 @@ class DistributedTrainer:
                 self.loss_batch = 0 if self.total_steps > real_step else self.loss_batch
 
             if self.total_steps != -1 and self.total_steps <= real_step:
+                if self.heterogeneous:
+                    break
                 # Final outer sync with timing
                 self.metrics_logger.start_timer("final_outer_sync")
                 logger.info(
@@ -647,13 +659,18 @@ class DistributedTrainer:
                     self.metrics_logger.log_system_metrics()
 
                 log_inner_stats(
-                    self.global_rank, self.local_rank, real_step, self.loss_batch, self.sync_count
+                    self.global_rank,
+                    self.local_rank,
+                    real_step,
+                    self.loss_batch,
+                    self.sync_count,
                 )
 
                 # Handle outer optimizer sync for DiLoCo
                 if (
                     self.optim_method != "ddp"
                     and self.count_inner_optimizer_steps % self.local_steps == 0
+                    and not self.heterogeneous
                 ):
                     self.count_inner_optimizer_steps = 0
                     self.metrics_logger.start_timer("gan_outer_sync")
@@ -758,6 +775,8 @@ class DistributedTrainer:
                 self.loss_batch = 0 if self.total_steps > real_step else self.loss_batch
 
             if self.total_steps != -1 and self.total_steps <= real_step:
+                if self.heterogeneous:
+                    return
                 # Final sync for DiLoCo with timing
                 if self.optim_method != "ddp":
                     self.metrics_logger.start_timer("final_gan_sync")

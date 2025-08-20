@@ -50,9 +50,17 @@ def main(args):
     trainer = DistributedTrainer(args)
     if args.heterogeneous:
         trainer.heterogeneous_profiling()
+        setattr(args, "heterogeneous", False)
+        setattr(args, "local_steps", trainer.local_steps)
+        setattr(
+            args, "per_device_train_batch_size", trainer.per_device_train_batch_size
+        )
+        setattr(args, "total_steps", trainer.total_steps)
+        setattr(args, "checkpoint_interval", trainer.checkpoint_interval)
+    print("args:", args)
+    trainer = DistributedTrainer(args)
     trainer.load_checkpoint()
     trainer.train()
-
     dist.destroy_process_group()
 
 

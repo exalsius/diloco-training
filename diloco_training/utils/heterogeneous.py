@@ -2,6 +2,7 @@ import torch
 import time
 import torch.distributed as dist
 from argparse import Namespace
+import gc
 
 
 def profile_gpu(
@@ -13,7 +14,7 @@ def profile_gpu(
     # Convert Namespace to a dictionary and back to Namespace for copying
     copy_args = Namespace(**vars(args))
     # Find max batch size that fits in memory using the real train loop
-    device_batch_size = 8
+    device_batch_size = 32
     found = 1
     avg_time = None
     while device_batch_size <= max_batch_size:
@@ -28,17 +29,21 @@ def profile_gpu(
             trainer = trainer_class(copy_args)
             start = time.time()
             trainer.train()
-            torch.cuda.synchronize()
             elapsed = time.time() - start
             avg_time = elapsed / n_trials
             found = device_batch_size
             device_batch_size *= 2
-            torch.cuda.empty_cache()
+            with torch.no_grad():
+                torch.cuda.empty_cache()
+            del trainer
+            gc.collect()
         except RuntimeError as e:
             if "out of memory" in str(e):
                 torch.cuda.empty_cache()
+                print(str(e))
                 break
             else:
+                print(str(e))
                 raise
     return found, avg_time
 
@@ -46,6 +51,7 @@ def profile_gpu(
 def synchronize_batch_and_steps(trainer_class, args):
     # Profile each GPU to get its time_per_batch
     batch_size, time_per_batch = profile_gpu(trainer_class, args)
+    dist.barrier()  # Ensure all processes are synchronized before gathering
     world_size = dist.get_world_size()
     local_info = {"batch_size": batch_size, "time_per_batch": time_per_batch}
     all_info = [None for _ in range(world_size)]
@@ -61,10 +67,32 @@ def synchronize_batch_and_steps(trainer_class, args):
         steps = int(round(target_sync_time / info["time_per_batch"]))
         local_steps_list.append(steps)
 
-    # Group GPUs within 5% of each other's time_per_batch and assign max local_steps in group
+    # Calculate speed ratios (inverse of time_per_batch, normalized)
+    speeds = [min_time_per_batch / info["time_per_batch"] for info in all_info]
+    total_speed = sum(speeds)
+
+    # Distribute total work proportionally based on speed
+    total_steps_list = []
+    for speed in speeds:
+        steps = int(round(args.total_steps * speed / total_speed * world_size))
+        total_steps_list.append(steps)
+
+    # Compute checkpoint_interval for each GPU (proportional to speed, same as local_steps)
+    checkpoint_interval_list = []
+    for info in all_info:
+        interval = int(
+            round(
+                args.checkpoint_interval * (min_time_per_batch / info["time_per_batch"])
+            )
+        )
+        checkpoint_interval_list.append(max(1, interval))
+
+    # Group GPUs within 5% of each other's time_per_batch and assign max values in group
     assigned_steps = None
+    assigned_total_steps = None
+    assigned_checkpoint_interval = None
+
     for i, info in enumerate(all_info):
-        # Find all GPUs within 5% of this GPU's time_per_batch
         group = [
             j
             for j, other in enumerate(all_info)
@@ -72,9 +100,19 @@ def synchronize_batch_and_steps(trainer_class, args):
             / info["time_per_batch"]
             <= 0.05
         ]
-        # Assign the max local_steps in this group
-        group_steps = max(local_steps_list[j] for j in group)
-        if i == dist.get_rank():
-            assigned_steps = group_steps
+        group_local_steps = max(local_steps_list[j] for j in group)
+        group_total_steps = max(total_steps_list[j] for j in group)
+        group_checkpoint_interval = max(checkpoint_interval_list[j] for j in group)
 
-    return batch_size, assigned_steps, all_info
+        if i == dist.get_rank():
+            assigned_steps = group_local_steps
+            assigned_total_steps = group_total_steps
+            assigned_checkpoint_interval = group_checkpoint_interval
+
+    return (
+        batch_size,
+        assigned_steps,
+        assigned_total_steps,
+        assigned_checkpoint_interval,
+        all_info,
+    )

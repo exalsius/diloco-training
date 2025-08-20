@@ -23,8 +23,8 @@ torchrun \
   --rdzv_backend=c10d \
   --rdzv_endpoint=10.42.0.52:29500 \
   diloco_training/training/main.py \
-    --model resnet50 \
-    --dataset imagenet \
+    --model gpt-neo-x \
+    --dataset c4 \
     --local_steps 128 \
     --lr 4e-4 \
     --outer_lr 0.7 \
@@ -35,6 +35,7 @@ torchrun \
     --optim_method sgd \
     --checkpoint_interval 512 \
     --wandb_project_name SPRIND \
-    --wandb_group SPRIND-imagenet-resnet50-diloco \
+    --wandb_group SPRIND-c4-gpt-neo-x-diloco-heterogeneous \
+    --heterogeneous True \
     --master_address 10.42.0.52 \
 
