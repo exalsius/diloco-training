@@ -1,8 +1,9 @@
-import torch
-import time
-import torch.distributed as dist
-from argparse import Namespace
 import gc
+import time
+from argparse import Namespace
+
+import torch
+import torch.distributed as dist
 
 
 def profile_gpu(
