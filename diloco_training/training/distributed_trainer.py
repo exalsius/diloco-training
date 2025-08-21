@@ -51,7 +51,7 @@ class DistributedTrainer:
         self.per_device_train_batch_size = config.per_device_train_batch_size
         self.heterogeneous = config.heterogeneous
         self.device = config.device
-        self.model = config.model
+        self.model_name = config.model
         self.dataset = config.dataset
         self.total_steps = config.total_steps
         self.optim_method = config.optim_method
@@ -147,7 +147,9 @@ class DistributedTrainer:
         # Log model and dataset configurations
         if self.local_rank == 0:
             log_model_config(
-                self.model_config, self.model, wandb_logging=self.config.wandb_logging
+                self.model_config,
+                self.model_name,
+                wandb_logging=self.config.wandb_logging,
             )
             log_dataset_config(self.dataset, wandb_logging=self.config.wandb_logging)
 
