@@ -1,6 +1,7 @@
 import os
 import time
 from datetime import timedelta
+from pathlib import Path
 
 import torch
 import torch.distributed as dist
@@ -64,7 +65,16 @@ def wandb_setup(
 
     # Add all args to config
     if args:
-        wandb_config.update({f"args/{k}": v for k, v in vars(args).items()})
+        # Create a serializable version of args
+        args_dict = vars(args)
+        serializable_args = {}
+        for key, value in args_dict.items():
+            if isinstance(value, Path):
+                serializable_args[key] = str(value)
+            else:
+                serializable_args[key] = value
+
+        wandb_config.update({f"args/{k}": v for k, v in serializable_args.items()})
 
     # Set up tags
     tags = getattr(args, "experiment_tags", []) if args else []
@@ -173,7 +183,7 @@ def evaluate_model(eval_dataloader, model, global_rank, local_rank, device):
             )
             return {"eval_loss": loss_eval, "eval_d_loss": loss_eval, **eval_metrics}
         else:
-            perplexity = torch.exp(torch.tensor(loss_eval)).item()
+            perplexity = torch.exp(loss_eval.detach().clone()).item()
             eval_metrics.update(
                 {
                     "eval/loss": loss_eval,
@@ -228,6 +238,16 @@ def log_stats(
             loss_b = loss_batch.item()
         except AttributeError:
             loss_b = loss_batch
+
+        # Create a serializable version of args
+        args_dict = vars(args)
+        serializable_args = {}
+        for key, value in args_dict.items():
+            if isinstance(value, Path):
+                serializable_args[key] = str(value)
+            else:
+                serializable_args[key] = value
+
         dict_to_log = {
             "Loss": loss_b,
             "real_step": real_step,
@@ -241,7 +261,7 @@ def log_stats(
             "local_steps": local_steps,
             "batch_size": batch_size,
             "per_device_train_batch_size": per_device_train_batch_size,
-            "args": vars(args),
+            "args": serializable_args,
         }
         logger.info("Stats: %s", dict_to_log)
         if wandb_logging:
