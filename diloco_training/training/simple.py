@@ -1,7 +1,8 @@
 import os
 import socket
-import torch.distributed as dist
 from datetime import timedelta
+
+import torch.distributed as dist
 
 
 def main():

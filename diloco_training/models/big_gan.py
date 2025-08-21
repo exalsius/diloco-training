@@ -1,13 +1,15 @@
 # train_biggan_deep_imagenet.py
 import os
+from dataclasses import dataclass
+from typing import Optional
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import utils
 from tqdm import tqdm
+
 from diloco_training.data.imagenet import get_imagenet
-from dataclasses import dataclass
-from typing import Optional
 
 # -------------------------------
 # BigGAN-Deep Generator & Discriminator
