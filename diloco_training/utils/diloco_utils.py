@@ -285,7 +285,6 @@ def update_outer_optimizer(
     reduce_start_time = time.time()
 
     bytes_sent = 0
-    
 
     # Time the wait for reduce to start (if there's synchronization overhead)
     reduce_processing_start = time.time()

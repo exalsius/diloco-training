@@ -62,6 +62,9 @@ class DistributedTrainer:
         self.outer_lr = config.outer_lr
         self.warmup_steps = config.warmup_steps
 
+        # Calculate sum_local_steps for distributed training
+        self.sum_local_steps = self.local_steps * self.world_size
+
         # Initialize model
         model_class = MODEL_REGISTRY.get(config.model)
         assert model_class, f"Model {config.model} not found"
@@ -490,8 +493,9 @@ class DistributedTrainer:
                         sync_time=sync_time,
                         bytes_sent_mb=bytes_sent / (1024 * 1024),
                     )
-                    logger.info(f"Global rank {self.global_rank} - Local rank {self.local_rank} - Outer optimizer synced at step {real_step}")
-
+                    logger.info(
+                        f"Global rank {self.global_rank} - Local rank {self.local_rank} - Outer optimizer synced at step {real_step}"
+                    )
 
                 if real_step % self.checkpoint_interval == 0 and not self.heterogeneous:
                     # Start timing for evaluation and checkpointing
@@ -938,7 +942,7 @@ class DistributedTrainer:
                 self.local_steps,
                 device=self.device,
                 quantization=self.quantization,
-                sum_local_steps=self.sum_local_steps
+                sum_local_steps=self.sum_local_steps,
             )
             self.params_offloaded_d = get_offloaded_param(
                 self.outer_optimizer_d, device=self.device
