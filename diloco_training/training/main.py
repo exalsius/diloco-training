@@ -1,9 +1,12 @@
 import argparse
 import os
+
 import torch.distributed as dist
 from huggingface_hub import login
-from diloco_training.utils.diloco_utils import ddp_setup, wandb_setup
+
 from diloco_training.training.distributed_trainer import DistributedTrainer
+from diloco_training.training.training_config import TrainingConfig
+from diloco_training.utils.diloco_utils import ddp_setup, wandb_setup
 from diloco_training.utils.metrics_logger import collect_environment_metadata
 
 
@@ -15,50 +18,52 @@ def main(args):
     world_size = int(os.environ["WORLD_SIZE"])
     wandb_user_key = os.environ.get("WANDB_USER_KEY", None)
     hf_token = os.environ.get("HUGGINGFACE_TOKEN", None)
-    setattr(args, "local_rank", local_rank)
-    setattr(args, "global_rank", global_rank)
-    setattr(args, "world_size", world_size)
+
+    # Convert argparse args to TrainingConfig
+    config_dict = {k: v for k, v in vars(args).items() if v is not None}
+    config = TrainingConfig.from_args_and_env(**config_dict)
+
     ddp_setup(
-        master_addr=args.master_address,
+        master_addr=config.master_address,
         master_port=master_port,
         global_rank=global_rank,
         local_rank=local_rank,
         world_size=world_size,
-        device=args.device,
+        device=config.device,
     )
 
     # Collect environment metadata for logging
-    env_metadata = collect_environment_metadata(args)
+    env_metadata = collect_environment_metadata(config)
 
     # Initialize WandB with enhanced metadata
     wandb_setup(
-        local_rank=args.local_rank,
-        global_rank=args.global_rank,
+        local_rank=local_rank,
+        global_rank=global_rank,
         user_key=wandb_user_key,
-        project_name=args.wandb_project_name,
-        run_id=args.wandb_run_id,
-        group=args.wandb_group,
-        experiment_description=args.experiment_description,
+        project_name=config.wandb_project_name,
+        run_id=config.wandb_run_id,
+        group=config.wandb_group if config.wandb_group else "diloco_workers",
+        experiment_description=config.experiment_description,
         metadata=env_metadata,
-        args=args,
+        args=config,
     )
 
     # hf login
     login(token=hf_token)
 
     # Initialize and run trainer
-    trainer = DistributedTrainer(args)
-    if args.heterogeneous:
+    trainer = DistributedTrainer(config, local_rank, global_rank, world_size)
+    if config.heterogeneous:
         trainer.heterogeneous_profiling()
-        setattr(args, "heterogeneous", False)
-        setattr(args, "local_steps", trainer.local_steps)
-        setattr(
-            args, "per_device_train_batch_size", trainer.per_device_train_batch_size
-        )
-        setattr(args, "total_steps", trainer.total_steps)
-        setattr(args, "checkpoint_interval", trainer.checkpoint_interval)
-    print("args:", args)
-    trainer = DistributedTrainer(args)
+        # Update config with profiling results
+        config.heterogeneous = False
+        config.local_steps = trainer.local_steps
+        config.per_device_train_batch_size = trainer.per_device_train_batch_size
+        config.total_steps = trainer.total_steps
+        config.checkpoint_interval = trainer.checkpoint_interval
+
+    print("config:", config.to_dict())
+    trainer = DistributedTrainer(config, local_rank, global_rank, world_size)
     trainer.load_checkpoint()
     trainer.train()
     dist.destroy_process_group()
@@ -90,7 +95,7 @@ if __name__ == "__main__":
         help="Optimizer.",
     )
     parser.add_argument(
-        "--quantization", type=bool, default=False, help="Enable quantization."
+        "--quantization", action="store_true", help="Enable quantization."
     )
     parser.add_argument(
         "--checkpoint_path", type=str, default="checkpoint.pth", help="Checkpoint path."
@@ -110,10 +115,7 @@ if __name__ == "__main__":
     parser.add_argument("--wandb_run_id", type=str, default=None, help="WandB run ID.")
     parser.add_argument("--wandb_group", type=str, default=None, help="WandB group.")
     parser.add_argument(
-        "--heterogeneous",
-        type=bool,
-        default=False,
-        help="Enable heterogeneous profiling.",
+        "--heterogeneous", action="store_true", help="Enable heterogeneous profiling."
     )
     parser.add_argument(
         "--compression_decay", type=float, default=0.9, help="Compression decay."
