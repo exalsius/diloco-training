@@ -1,11 +1,13 @@
-import time
-import psutil
 import platform
 import subprocess
+import time
+from collections import defaultdict
+from typing import Any, Dict
+
+import psutil
 import torch
 import torch.distributed as dist
-from collections import defaultdict
-from typing import Dict, Any
+
 import wandb
 from diloco_training.utils.exalsius_logger import get_logger
 
@@ -15,11 +17,19 @@ logger = get_logger("metrics_logger")
 class MetricsLogger:
     """Comprehensive metrics logger for distributed training"""
 
-    def __init__(self, local_rank: int, global_rank: int, world_size: int, device: str):
+    def __init__(
+        self,
+        local_rank: int,
+        global_rank: int,
+        world_size: int,
+        device: str,
+        wandb_logging: bool = True,
+    ):
         self.local_rank = local_rank
         self.global_rank = global_rank
         self.world_size = world_size
         self.device = device
+        self.wandb_logging = wandb_logging
 
         # Timing trackers
         self.timers = defaultdict(list)
@@ -60,49 +70,78 @@ class MetricsLogger:
         self.communication_metrics["total_bytes_sent"] += bytes_sent
         self.communication_metrics["sync_count"] += 1
 
-        wandb.log(
-            {
-                f"comm/{sync_type}_bytes_sent": bytes_sent,
-                f"comm/{sync_type}_bytes_sent_mb": bytes_sent / (1024 * 1024),
-                "comm/total_bytes_sent_mb": self.communication_metrics[
-                    "total_bytes_sent"
-                ]
-                / (1024 * 1024),
-                "comm/sync_count": self.communication_metrics["sync_count"],
-                "local_rank": self.local_rank,
-                "global_rank": self.global_rank,
-            }
-        )
+        if self.wandb_logging:
+            wandb.log(
+                {
+                    f"comm/{sync_type}_bytes_sent": bytes_sent,
+                    f"comm/{sync_type}_bytes_sent_mb": bytes_sent / (1024 * 1024),
+                    "comm/total_bytes_sent_mb": self.communication_metrics[
+                        "total_bytes_sent"
+                    ]
+                    / (1024 * 1024),
+                    "comm/sync_count": self.communication_metrics["sync_count"],
+                    "local_rank": self.local_rank,
+                    "global_rank": self.global_rank,
+                }
+            )
+        else:
+            logger.info("Skipping WandB logging for communication metrics")
+            logger.info(f"comm/{sync_type}_bytes_sent: {bytes_sent}")
+            logger.info(f"comm/{sync_type}_bytes_sent_mb: {bytes_sent / (1024 * 1024)}")
+            logger.info(
+                f"comm/total_bytes_sent_mb: {self.communication_metrics['total_bytes_sent'] / (1024 * 1024)}"
+            )
+            logger.info(f"comm/sync_count: {self.communication_metrics['sync_count']}")
+            logger.info(f"local_rank: {self.local_rank}")
+            logger.info(f"global_rank: {self.global_rank}")
 
     def log_reduce_wait_time(self, wait_time: float):
         """Log time spent waiting for reduce step to start"""
         self.communication_metrics["reduce_wait_times"].append(wait_time)
-        wandb.log(
-            {
-                "comm/reduce_wait_time": wait_time,
-                "comm/avg_reduce_wait_time": sum(
-                    self.communication_metrics["reduce_wait_times"]
-                )
-                / len(self.communication_metrics["reduce_wait_times"]),
-                "local_rank": self.local_rank,
-                "global_rank": self.global_rank,
-            }
-        )
+        if self.wandb_logging:
+            wandb.log(
+                {
+                    "comm/reduce_wait_time": wait_time,
+                    "comm/avg_reduce_wait_time": sum(
+                        self.communication_metrics["reduce_wait_times"]
+                    )
+                    / len(self.communication_metrics["reduce_wait_times"]),
+                    "local_rank": self.local_rank,
+                    "global_rank": self.global_rank,
+                }
+            )
+        else:
+            logger.info("Skipping WandB logging for reduce wait time")
+            logger.info(f"comm/reduce_wait_time: {wait_time}")
+            logger.info(
+                f"comm/avg_reduce_wait_time: {sum(self.communication_metrics['reduce_wait_times']) / len(self.communication_metrics['reduce_wait_times'])}"
+            )
+            logger.info(f"local_rank: {self.local_rank}")
+            logger.info(f"global_rank: {self.global_rank}")
 
     def log_reduce_processing_time(self, processing_time: float):
         """Log time spent in reduce processing (excluding wait time)"""
         self.communication_metrics["reduce_processing_times"].append(processing_time)
-        wandb.log(
-            {
-                "comm/reduce_processing_time": processing_time,
-                "comm/avg_reduce_processing_time": sum(
-                    self.communication_metrics["reduce_processing_times"]
-                )
-                / len(self.communication_metrics["reduce_processing_times"]),
-                "local_rank": self.local_rank,
-                "global_rank": self.global_rank,
-            }
-        )
+        if self.wandb_logging:
+            wandb.log(
+                {
+                    "comm/reduce_processing_time": processing_time,
+                    "comm/avg_reduce_processing_time": sum(
+                        self.communication_metrics["reduce_processing_times"]
+                    )
+                    / len(self.communication_metrics["reduce_processing_times"]),
+                    "local_rank": self.local_rank,
+                    "global_rank": self.global_rank,
+                }
+            )
+        else:
+            logger.info("Skipping WandB logging for reduce processing time")
+            logger.info(f"comm/reduce_processing_time: {processing_time}")
+            logger.info(
+                f"comm/avg_reduce_processing_time: {sum(self.communication_metrics['reduce_processing_times']) / len(self.communication_metrics['reduce_processing_times'])}"
+            )
+            logger.info(f"local_rank: {self.local_rank}")
+            logger.info(f"global_rank: {self.global_rank}")
 
     def log_system_metrics(self):
         """Log system resource utilization"""
@@ -138,7 +177,15 @@ class MetricsLogger:
                     }
                 )
 
-            wandb.log(metrics)
+            if self.wandb_logging:
+                wandb.log(metrics)
+            else:
+                logger.info("Skipping WandB logging for system metrics")
+                logger.info(f"system/cpu_percent: {cpu_percent}")
+                logger.info(
+                    f"system/memory_usage_mb: {memory_info.rss / (1024 * 1024)}"
+                )
+                logger.info(f"system/memory_percent: {memory_percent}")
 
         except Exception as e:
             logger.warning(f"Failed to log system metrics: {e}")
@@ -146,16 +193,25 @@ class MetricsLogger:
     def log_throughput_metrics(self, samples_processed: int, time_elapsed: float):
         """Log throughput metrics"""
         samples_per_second = samples_processed / time_elapsed if time_elapsed > 0 else 0
-        wandb.log(
-            {
-                "performance/samples_per_second": samples_per_second,
-                "performance/time_per_sample": (
-                    time_elapsed / samples_processed if samples_processed > 0 else 0
-                ),
-                "local_rank": self.local_rank,
-                "global_rank": self.global_rank,
-            }
-        )
+        if self.wandb_logging:
+            wandb.log(
+                {
+                    "performance/samples_per_second": samples_per_second,
+                    "performance/time_per_sample": (
+                        time_elapsed / samples_processed if samples_processed > 0 else 0
+                    ),
+                    "local_rank": self.local_rank,
+                    "global_rank": self.global_rank,
+                }
+            )
+        else:
+            logger.info("Skipping WandB logging for throughput metrics")
+            logger.info(f"performance/samples_per_second: {samples_per_second}")
+            logger.info(
+                f"performance/time_per_sample: {time_elapsed / samples_processed if samples_processed > 0 else 0}"
+            )
+            logger.info(f"local_rank: {self.local_rank}")
+            logger.info(f"global_rank: {self.global_rank}")
 
     def log_training_metrics(
         self, step: int, loss: float, loss_type: str = "inner", **kwargs
@@ -175,7 +231,17 @@ class MetricsLogger:
         for key, value in kwargs.items():
             metrics[f"training/{key}"] = value
 
-        wandb.log(metrics)
+        if self.wandb_logging:
+            wandb.log(metrics)
+        else:
+            logger.info("Skipping WandB logging for training metrics")
+            logger.info(f"training/{loss_type}_loss: {loss}")
+            logger.info(
+                f"training/{loss_type}_perplexity: {torch.exp(torch.tensor(loss)).item() if loss_type != 'gan' else loss}"
+            )
+            logger.info(f"step: {step}")
+            logger.info(f"local_rank: {self.local_rank}")
+            logger.info(f"global_rank: {self.global_rank}")
 
     def log_timing_summary(self, step: int):
         """Log timing summary for various operations"""
@@ -200,7 +266,15 @@ class MetricsLogger:
         total_duration = time.time() - self.experiment_start_time
         timing_metrics["timing/experiment_duration"] = total_duration
 
-        wandb.log(timing_metrics)
+        if self.wandb_logging:
+            wandb.log(timing_metrics)
+        else:
+            logger.info("Skipping WandB logging for timing summary")
+            logger.info(f"timing/experiment_duration: {total_duration}")
+            for timer_name, times in self.timers.items():
+                logger.info(f"timing/{timer_name}_avg: {sum(times) / len(times)}")
+                logger.info(f"timing/{timer_name}_total: {sum(times)}")
+                logger.info(f"timing/{timer_name}_count: {len(times)}")
 
     def reset_timers(self):
         """Reset all timing metrics"""
@@ -272,7 +346,7 @@ def collect_environment_metadata(args) -> Dict[str, Any]:
     return metadata
 
 
-def log_model_config(model_config: Any, model_name: str):
+def log_model_config(model_config: Any, model_name: str, wandb_logging: bool = True):
     """Log model configuration details"""
     if hasattr(model_config, "__dict__"):
         config_dict = {
@@ -281,15 +355,31 @@ def log_model_config(model_config: Any, model_name: str):
             if not k.startswith("_") and isinstance(v, (int, float, str, bool))
         }
         config_dict["model_config/name"] = model_name
-        wandb.log(config_dict)
+        if wandb_logging:
+            wandb.log(config_dict)
+        else:
+            logger.info("Skipping WandB logging for model config")
+            logger.info(f"model config dict: {config_dict}")
     else:
-        wandb.log({"model_config/name": model_name})
+        if wandb_logging:
+            wandb.log({"model_config/name": model_name})
+        else:
+            logger.info("Skipping WandB logging for model config")
+            logger.info(f"model_config/name: {model_name}")
 
 
-def log_dataset_config(dataset_name: str, **dataset_kwargs):
+def log_dataset_config(
+    dataset_name: str,
+    wandb_logging: bool = True,
+    **dataset_kwargs,
+):
     """Log dataset configuration details"""
     config_dict = {"dataset_config/name": dataset_name}
     for key, value in dataset_kwargs.items():
         if isinstance(value, (int, float, str, bool)):
             config_dict[f"dataset_config/{key}"] = value
-    wandb.log(config_dict)
+    if wandb_logging:
+        wandb.log(config_dict)
+    else:
+        logger.info("Skipping WandB logging for dataset config")
+        logger.info(f"dataset config dict: {config_dict}")

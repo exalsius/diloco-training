@@ -1,5 +1,3 @@
-import logging
-import logging.config
 import os
 import time
 from datetime import timedelta
@@ -9,10 +7,9 @@ import torch.distributed as dist
 from torch.amp import autocast
 
 import wandb
-from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
+from diloco_training.utils.exalsius_logger import get_logger
 from diloco_training.utils.quantization import distributed_reduce_quantized
 
-logging.config.dictConfig(LOG_CONFIG)
 logger = get_logger("diloco_training")
 
 
@@ -192,7 +189,9 @@ def evaluate_model(eval_dataloader, model, global_rank, local_rank, device):
         return None
 
 
-def log_inner_stats(global_rank, local_rank, real_step, loss_batch, sync_count):
+def log_inner_stats(
+    global_rank, local_rank, real_step, loss_batch, sync_count, wandb_logging=True
+):
     dict_to_log = {
         "global_rank": global_rank,
         "local_rank": local_rank,
@@ -202,7 +201,10 @@ def log_inner_stats(global_rank, local_rank, real_step, loss_batch, sync_count):
         "sync_count": sync_count,
     }
 
-    wandb.log(dict_to_log)
+    if wandb_logging:
+        wandb.log(dict_to_log)
+    else:
+        logger.info(f"inner stats: {dict_to_log}")
 
 
 def log_stats(
@@ -218,6 +220,7 @@ def log_stats(
     local_steps,
     per_device_train_batch_size,
     args,
+    wandb_logging=True,
 ):
     if local_rank == 0:
         total_mb_sent = total_bytes_sent / (1024 * 1024)
@@ -241,7 +244,8 @@ def log_stats(
             "args": vars(args),
         }
         logger.info("Stats: %s", dict_to_log)
-        wandb.log(dict_to_log)
+        if wandb_logging:
+            wandb.log(dict_to_log)
 
 
 def prepare_batch(batch, device="cuda"):
