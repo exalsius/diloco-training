@@ -12,6 +12,13 @@ jobs:
   build-main:
     runs-on: ubuntu-latest
     steps:
+      - name: Free up disk space
+        run: |
+          echo "Cleaning up disk space"
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/lib/android
+          sudo apt-get clean
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Docker Buildx
@@ -27,6 +34,7 @@ jobs:
         with:
           context: .
           push: true
+          load: false
           tags: |
             ${{ env.IMAGE_NAME }}:dev
             ${{ env.IMAGE_NAME }}:dev-${{ github.sha }}
