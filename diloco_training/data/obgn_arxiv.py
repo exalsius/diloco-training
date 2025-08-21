@@ -1,7 +1,7 @@
-from torch_geometric.transforms import ToUndirected
 from ogb.nodeproppred import PygNodePropPredDataset
-from torch_geometric.loader import NeighborLoader
 from torch.utils.data.distributed import DistributedSampler
+from torch_geometric.loader import NeighborLoader
+from torch_geometric.transforms import ToUndirected
 
 
 def infinite_dataloader(dataloader):
