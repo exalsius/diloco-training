@@ -75,7 +75,9 @@ class TrainingConfig(BaseSettings):
         description="Description of the experiment run",
     )
     experiment_tags: List[str] = Field(
-        default_factory=list, description="Tags for the experiment"
+        default_factory=list,
+        description="Tags for the experiment",
+        json_schema_extra={"type": "array", "items": {"type": "string"}},
     )
     seed: int = Field(default=42, description="Random seed for reproducibility")
     wandb_logging: bool = Field(default=True, description="Enable WandB logging")
@@ -90,8 +92,14 @@ class TrainingConfig(BaseSettings):
     def parse_experiment_tags(cls, v):
         """Parse experiment tags from string if needed."""
         if isinstance(v, str):
+            # Handle comma-separated string from environment variable
             return [tag.strip() for tag in v.split(",") if tag.strip()]
-        return v
+        elif isinstance(v, list):
+            # Already a list, return as is
+            return v
+        else:
+            # Default to empty list for other types
+            return []
 
     @field_validator("model")
     @classmethod
