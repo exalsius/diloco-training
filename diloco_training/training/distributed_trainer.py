@@ -47,6 +47,7 @@ class DistributedTrainer:
         self.optim_method = args.optim_method
         self.checkpoint_path = args.checkpoint_path
         self.checkpoint_interval = args.checkpoint_interval
+        self.count_outer_optimizer_steps = 1
         self.start_step = 0
         self.real_step = 0
         self.count_inner_optimizer_steps = 0
@@ -142,14 +143,12 @@ class DistributedTrainer:
                 per_device_batch_size,
                 local_steps,
                 total_steps,
-                checkpoint_interval,
                 all_info,
             ) = synchronize_batch_and_steps(DistributedTrainer, self.args)
             logger.info(f"Profiling results: {all_info}, Local_steps: {local_steps}")
         self.per_device_train_batch_size = per_device_batch_size
         self.local_steps = local_steps
         self.total_steps = total_steps
-        self.checkpoint_interval = checkpoint_interval
         self.heterogeneous = False
 
     def initialize_model(self, model_class):
@@ -293,7 +292,7 @@ class DistributedTrainer:
                 self.scaler.update()
                 self.inner_optimizer.zero_grad()
                 self.scheduler.step()
-
+                # here checkpoint interval is in number of steps
                 if real_step % self.checkpoint_interval == 0 and not self.heterogeneous:
                     val_stats = evaluate_model(
                         self.val_dataloader,
@@ -433,6 +432,7 @@ class DistributedTrainer:
                     and not self.heterogeneous
                 ):
                     self.count_inner_optimizer_steps = 0
+                    
                     # Start timing for outer optimizer sync
                     self.metrics_logger.start_timer("outer_sync")
                     logger.info(
@@ -478,10 +478,12 @@ class DistributedTrainer:
                         bytes_sent_mb=bytes_sent / (1024 * 1024),
                     )
                     logger.info(f"Global rank {self.global_rank} - Local rank {self.local_rank} - Outer optimizer synced at step {real_step}")
+                    self.count_outer_optimizer_steps += 1
 
-
-                if real_step % self.checkpoint_interval == 0 and not self.heterogeneous:
+                if self.count_outer_optimizer_steps % self.checkpoint_interval == 0 and not self.heterogeneous:
                     # Start timing for evaluation and checkpointing
+                    logger.info(f"Outer loop syncs: {self.count_outer_optimizer_steps}")
+                    self.count_outer_optimizer_steps = 1
                     self.metrics_logger.start_timer("evaluation")
                     val_stats = evaluate_model(
                         self.val_dataloader,
@@ -563,7 +565,6 @@ class DistributedTrainer:
                         self.global_rank,
                         self.device,
                     )
-                    dist.barrier()
                     log_stats(
                         self.local_rank,
                         real_step,
@@ -748,8 +749,9 @@ class DistributedTrainer:
                         bytes_sent_d_mb=bytes_sent_d / (1024 * 1024),
                         bytes_sent_g_mb=bytes_sent_g / (1024 * 1024),
                     )
-
-                if real_step % self.checkpoint_interval == 0 and not self.heterogeneous:
+                    self.count_outer_optimizer_steps += 1 
+                if self.count_outer_optimizer_steps % self.checkpoint_interval == 0 and not self.heterogeneous:
+                    self.count_outer_optimizer_steps = 1
                     self.metrics_logger.start_timer("evaluation")
                     val_stats = evaluate_model(
                         self.val_dataloader,
@@ -853,8 +855,6 @@ class DistributedTrainer:
                         self.global_rank,
                         self.device,
                     )
-                    if self.optim_method != "ddp":
-                        dist.barrier()
                     log_stats(
                         self.local_rank,
                         real_step,
