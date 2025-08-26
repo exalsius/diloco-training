@@ -101,7 +101,7 @@ if __name__ == "__main__":
         "--checkpoint_path", type=str, default="checkpoint.pth", help="Checkpoint path."
     )
     parser.add_argument(
-        "--checkpoint_interval", type=int, default=512, help="Checkpoint interval."
+        "--checkpoint_interval", type=int, default=4, help="Checkpoint interval."
     )
     parser.add_argument(
         "--device", type=str, default="cuda", choices=["cuda", "cpu"], help="Device."
