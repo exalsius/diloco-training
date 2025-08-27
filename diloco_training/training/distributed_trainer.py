@@ -155,18 +155,23 @@ class DistributedTrainer:
             log_dataset_config(self.dataset, wandb_logging=self.config.wandb_logging)
 
     def heterogeneous_profiling(self):
+        """Run heterogeneous profiling to optimize batch sizes and steps."""
         if dist.is_initialized() and self.heterogeneous:
             (
                 per_device_batch_size,
                 local_steps,
                 total_steps,
                 all_info,
-            ) = synchronize_batch_and_steps(DistributedTrainer, self.config)
+            ) = synchronize_batch_and_steps(
+                self.config, self.local_rank, self.global_rank, self.world_size
+            )
+
             logger.info(f"Profiling results: {all_info}, Local_steps: {local_steps}")
-        self.per_device_train_batch_size = per_device_batch_size
-        self.local_steps = local_steps
-        self.total_steps = total_steps
-        self.heterogeneous = False
+
+            self.per_device_train_batch_size = per_device_batch_size
+            self.local_steps = local_steps
+            self.total_steps = total_steps
+            self.heterogeneous = False
 
     def initialize_model(self, model_class):
         config, model = model_class()
