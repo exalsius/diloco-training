@@ -12,7 +12,6 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
-
 # Build tools
 RUN apt-get update && \
     apt-get install -y software-properties-common && \
@@ -23,29 +22,27 @@ RUN apt-get update && \
         build-essential git cmake ninja-build && \
     rm -rf /var/lib/apt/lists/*
 
-
-# Resolve deps into a venv (no dev)
 COPY uv.lock pyproject.toml /app/
+
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 
-COPY . /app
+COPY diloco_training/ /app/diloco_training/
+
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
-
 
 ENV VIRTUAL_ENV=/app/.venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 RUN /app/.venv/bin/python -m ensurepip --upgrade || true \
  && /app/.venv/bin/python -m pip install --upgrade pip wheel setuptools ninja packaging
 
-
 RUN --mount=type=cache,target=/root/.cache/pip \
     /app/.venv/bin/python -m pip install --no-build-isolation --verbose flash-attn
 
 RUN /app/.venv/bin/python -c "import flash_attn, torch; print('flash_attn', flash_attn.__version__, ' torch', torch.__version__)"
 
-
+# --- Final runtime image ---
 FROM pytorch/pytorch:2.5.0-cuda12.4-cudnn9-runtime AS final
 WORKDIR /app
 

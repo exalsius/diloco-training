@@ -1,43 +1,57 @@
 import gc
 import time
-from argparse import Namespace
 
 import torch
 import torch.distributed as dist
 
+from diloco_training.training.training_config import TrainingConfig
+
 
 def profile_gpu(
-    trainer_class,
-    args,
-    max_batch_size=256,
-    n_trials=10,
+    config: TrainingConfig,
+    local_rank: int,
+    global_rank: int,
+    world_size: int,
+    max_batch_size: int = 256,
+    n_trials: int = 10,
 ):
-    # Convert Namespace to a dictionary and back to Namespace for copying
-    copy_args = Namespace(**vars(args))
-    # Find max batch size that fits in memory using the real train loop
+    """Profile GPU performance to find optimal batch size."""
+    from diloco_training.training.distributed_trainer import DistributedTrainer
+
     device_batch_size = 32
     found = 1
     avg_time = None
+
     while device_batch_size <= max_batch_size:
         try:
-            setattr(copy_args, "local_steps", n_trials // 5)
-            setattr(copy_args, "per_device_train_batch_size", device_batch_size)
-            setattr(copy_args, "total_steps", n_trials)
-            setattr(copy_args, "checkpoint_path", "/tmp/dummy.pth")
-            setattr(copy_args, "checkpoint_interval", 1000)
-            setattr(copy_args, "heterogeneous", True)
+            # Create a copy of config with profiling parameters
+            profiling_config = config.model_copy(
+                update={
+                    "local_steps": n_trials // 5,
+                    "per_device_train_batch_size": device_batch_size,
+                    "total_steps": n_trials,
+                    "checkpoint_path": "/tmp/dummy.pth",
+                    "checkpoint_interval": 1000,
+                    "heterogeneous": True,
+                }
+            )
 
-            trainer = trainer_class(copy_args)
+            trainer = DistributedTrainer(
+                profiling_config, local_rank, global_rank, world_size
+            )
+
             start = time.time()
             trainer.train()
             elapsed = time.time() - start
             avg_time = elapsed / n_trials
             found = device_batch_size
             device_batch_size *= 2
+
             with torch.no_grad():
                 torch.cuda.empty_cache()
             del trainer
             gc.collect()
+
         except RuntimeError as e:
             if "out of memory" in str(e):
                 torch.cuda.empty_cache()
@@ -46,21 +60,30 @@ def profile_gpu(
             else:
                 print(str(e))
                 raise
+
     return found, avg_time
 
 
-def synchronize_batch_and_steps(trainer_class, args):
+def synchronize_batch_and_steps(
+    config: TrainingConfig,
+    local_rank: int,
+    global_rank: int,
+    world_size: int,
+):
+    """Synchronize batch sizes and steps across heterogeneous GPUs."""
     # Profile each GPU to get its time_per_batch
-    batch_size, time_per_batch = profile_gpu(trainer_class, args)
+    batch_size, time_per_batch = profile_gpu(
+        config, local_rank, global_rank, world_size
+    )
+
     dist.barrier()  # Ensure all processes are synchronized before gathering
-    world_size = dist.get_world_size()
     local_info = {"batch_size": batch_size, "time_per_batch": time_per_batch}
     all_info = [None for _ in range(world_size)]
     dist.all_gather_object(all_info, local_info)
 
     # Find the fastest GPU's time_per_batch
     min_time_per_batch = min(info["time_per_batch"] for info in all_info)
-    target_sync_time = args.local_steps * min_time_per_batch
+    target_sync_time = config.local_steps * min_time_per_batch
 
     # Compute local_steps for each GPU
     local_steps_list = []
@@ -75,7 +98,7 @@ def synchronize_batch_and_steps(trainer_class, args):
     # Distribute total work proportionally based on speed
     total_steps_list = []
     for speed in speeds:
-        steps = int(round(args.total_steps * speed / total_speed * world_size))
+        steps = int(round(config.total_steps * speed / total_speed * world_size))
         total_steps_list.append(steps)
 
     # Group GPUs within 5% of each other's time_per_batch and assign max values in group
