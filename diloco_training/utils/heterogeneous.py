@@ -1,8 +1,9 @@
-import torch
-import time
-import torch.distributed as dist
-from argparse import Namespace
 import gc
+import time
+from argparse import Namespace
+
+import torch
+import torch.distributed as dist
 
 
 def profile_gpu(
@@ -77,20 +78,9 @@ def synchronize_batch_and_steps(trainer_class, args):
         steps = int(round(args.total_steps * speed / total_speed * world_size))
         total_steps_list.append(steps)
 
-    # Compute checkpoint_interval for each GPU (proportional to speed, same as local_steps)
-    checkpoint_interval_list = []
-    for info in all_info:
-        interval = int(
-            round(
-                args.checkpoint_interval * (min_time_per_batch / info["time_per_batch"])
-            )
-        )
-        checkpoint_interval_list.append(max(1, interval))
-
     # Group GPUs within 5% of each other's time_per_batch and assign max values in group
     assigned_steps = None
     assigned_total_steps = None
-    assigned_checkpoint_interval = None
 
     for i, info in enumerate(all_info):
         group = [
@@ -102,17 +92,9 @@ def synchronize_batch_and_steps(trainer_class, args):
         ]
         group_local_steps = max(local_steps_list[j] for j in group)
         group_total_steps = max(total_steps_list[j] for j in group)
-        group_checkpoint_interval = max(checkpoint_interval_list[j] for j in group)
 
         if i == dist.get_rank():
             assigned_steps = group_local_steps
             assigned_total_steps = group_total_steps
-            assigned_checkpoint_interval = group_checkpoint_interval
 
-    return (
-        batch_size,
-        assigned_steps,
-        assigned_total_steps,
-        assigned_checkpoint_interval,
-        all_info,
-    )
+    return batch_size, assigned_steps, assigned_total_steps, all_info

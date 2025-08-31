@@ -1,18 +1,16 @@
-import logging
-import logging.config
 import os
 import time
 from datetime import timedelta
+from pathlib import Path
 
 import torch
 import torch.distributed as dist
 from torch.amp import autocast
 
 import wandb
-from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
+from diloco_training.utils.exalsius_logger import get_logger
 from diloco_training.utils.quantization import distributed_reduce_quantized
 
-logging.config.dictConfig(LOG_CONFIG)
 logger = get_logger("diloco_training")
 
 
@@ -67,7 +65,16 @@ def wandb_setup(
 
     # Add all args to config
     if args:
-        wandb_config.update({f"args/{k}": v for k, v in vars(args).items()})
+        # Create a serializable version of args
+        args_dict = vars(args)
+        serializable_args = {}
+        for key, value in args_dict.items():
+            if isinstance(value, Path):
+                serializable_args[key] = str(value)
+            else:
+                serializable_args[key] = value
+
+        wandb_config.update({f"args/{k}": v for k, v in serializable_args.items()})
 
     # Set up tags
     tags = getattr(args, "experiment_tags", []) if args else []
@@ -176,7 +183,7 @@ def evaluate_model(eval_dataloader, model, global_rank, local_rank, device):
             )
             return {"eval_loss": loss_eval, "eval_d_loss": loss_eval, **eval_metrics}
         else:
-            perplexity = torch.exp(torch.tensor(loss_eval)).item()
+            perplexity = torch.exp(loss_eval.detach().clone()).item()
             eval_metrics.update(
                 {
                     "eval/loss": loss_eval,
@@ -192,7 +199,9 @@ def evaluate_model(eval_dataloader, model, global_rank, local_rank, device):
         return None
 
 
-def log_inner_stats(global_rank, local_rank, real_step, loss_batch, sync_count):
+def log_inner_stats(
+    global_rank, local_rank, real_step, loss_batch, sync_count, wandb_logging=True
+):
     dict_to_log = {
         "global_rank": global_rank,
         "local_rank": local_rank,
@@ -202,7 +211,10 @@ def log_inner_stats(global_rank, local_rank, real_step, loss_batch, sync_count):
         "sync_count": sync_count,
     }
 
-    wandb.log(dict_to_log)
+    if wandb_logging:
+        wandb.log(dict_to_log)
+    else:
+        logger.info(f"inner stats: {dict_to_log}")
 
 
 def log_stats(
@@ -218,6 +230,7 @@ def log_stats(
     local_steps,
     per_device_train_batch_size,
     args,
+    wandb_logging=True,
 ):
     if local_rank == 0:
         total_mb_sent = total_bytes_sent / (1024 * 1024)
@@ -225,6 +238,16 @@ def log_stats(
             loss_b = loss_batch.item()
         except AttributeError:
             loss_b = loss_batch
+
+        # Create a serializable version of args
+        args_dict = vars(args)
+        serializable_args = {}
+        for key, value in args_dict.items():
+            if isinstance(value, Path):
+                serializable_args[key] = str(value)
+            else:
+                serializable_args[key] = value
+
         dict_to_log = {
             "Loss": loss_b,
             "real_step": real_step,
@@ -238,10 +261,11 @@ def log_stats(
             "local_steps": local_steps,
             "batch_size": batch_size,
             "per_device_train_batch_size": per_device_train_batch_size,
-            "args": vars(args),
+            "args": serializable_args,
         }
         logger.info("Stats: %s", dict_to_log)
-        wandb.log(dict_to_log)
+        if wandb_logging:
+            wandb.log(dict_to_log)
 
 
 def prepare_batch(batch, device="cuda"):
@@ -281,7 +305,6 @@ def update_outer_optimizer(
     reduce_start_time = time.time()
 
     bytes_sent = 0
-    
 
     # Time the wait for reduce to start (if there's synchronization overhead)
     reduce_processing_start = time.time()

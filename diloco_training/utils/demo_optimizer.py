@@ -14,7 +14,8 @@ import torch
 import torch.distributed as dist
 import torch.fft
 from einops import rearrange
-from diloco_training.utils.quantization import quantize_tensor, dequantize_tensor
+
+from diloco_training.utils.quantization import dequantize_tensor, quantize_tensor
 
 
 class DeMo(torch.optim.SGD):

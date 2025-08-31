@@ -8,6 +8,7 @@ from transformers import get_cosine_schedule_with_warmup
 
 from diloco_training.data import DATASET_REGISTRY
 from diloco_training.models import MODEL_REGISTRY
+from diloco_training.training.training_config import TrainingConfig
 from diloco_training.utils.diloco_utils import (
     evaluate_model,
     forward_and_compute_loss,
@@ -18,12 +19,12 @@ from diloco_training.utils.diloco_utils import (
     update_inner_optimizer,
     update_outer_optimizer,
 )
-from diloco_training.utils.heterogeneous import synchronize_batch_and_steps
 from diloco_training.utils.exalsius_logger import LOG_CONFIG, get_logger
+from diloco_training.utils.heterogeneous import synchronize_batch_and_steps
 from diloco_training.utils.metrics_logger import (
     MetricsLogger,
-    log_model_config,
     log_dataset_config,
+    log_model_config,
 )
 
 logging.config.dictConfig(LOG_CONFIG)
@@ -31,40 +32,48 @@ logger = get_logger("diloco_training")
 
 
 class DistributedTrainer:
-    def __init__(self, args):
-        self.args = args
-        self.local_rank = args.local_rank
-        self.global_rank = args.global_rank
-        self.world_size = args.world_size
-        self.batch_size = args.batch_size
-        self.local_steps = args.local_steps
-        self.per_device_train_batch_size = args.per_device_train_batch_size
-        self.heterogeneous = args.heterogeneous
-        self.device = args.device
-        self.model = args.model
-        self.dataset = args.dataset
-        self.total_steps = args.total_steps
-        self.optim_method = args.optim_method
-        self.checkpoint_path = args.checkpoint_path
-        self.checkpoint_interval = args.checkpoint_interval
-        self.start_step = 0
-        self.real_step = 0
-        self.count_inner_optimizer_steps = 0
-        self.quantization = args.quantization
-        if not self.heterogeneous:
-            local_steps_list = [0 for _ in range(self.world_size)]
-            dist.all_gather_object(local_steps_list, self.local_steps)
-            self.sum_local_steps = sum(local_steps_list)
-        else:
-            self.sum_local_steps=10
+    def __init__(
+        self, config: TrainingConfig, local_rank: int, global_rank: int, world_size: int
+    ):
+        self.config = config
+
+        # srnbckr: this if for backwards compatability: it would be better to refactor the code
+        # to not use "args" anymore.
+        self.args = self.config
+        # Add distributed training attributes that aren't in TrainingConfig
+        self.local_rank = local_rank
+        self.global_rank = global_rank
+        self.world_size = world_size
+
+        # Use config attributes directly
+        self.batch_size = config.batch_size
+        self.local_steps = config.local_steps
+        self.per_device_train_batch_size = config.per_device_train_batch_size
+        self.heterogeneous = config.heterogeneous
+        self.device = config.device
+        self.model_name = config.model
+        self.dataset = config.dataset
+        self.total_steps = config.total_steps
+        self.optim_method = config.optim_method
+        self.checkpoint_path = config.checkpoint_path
+        self.checkpoint_interval = config.checkpoint_interval
+        self.count_outer_optimizer_steps = 1
+        self.quantization = config.quantization
+        self.lr = config.lr
+        self.outer_lr = config.outer_lr
+        self.warmup_steps = config.warmup_steps
+
+        # Calculate sum_local_steps for distributed training
+        self.sum_local_steps = self.local_steps * self.world_size
+
         # Initialize model
-        model_class = MODEL_REGISTRY.get(args.model)
-        assert model_class, f"Model {args.model} not found"
+        model_class = MODEL_REGISTRY.get(config.model)
+        assert model_class, f"Model {config.model} not found"
         self.model_config, self.model = self.initialize_model(model_class)
 
         # Initialize dataset
-        dataset_class = DATASET_REGISTRY.get(args.dataset)
-        assert dataset_class, f"Dataset {args.dataset} not found"
+        dataset_class = DATASET_REGISTRY.get(config.dataset)
+        assert dataset_class, f"Dataset {config.dataset} not found"
         self.train_dataloader, self.val_dataloader = self.initialize_dataset(
             dataset_class
         )
@@ -85,13 +94,13 @@ class DistributedTrainer:
             )
             self.scheduler_g = get_cosine_schedule_with_warmup(
                 self.inner_optimizer_g,
-                num_warmup_steps=args.warmup_steps,
-                num_training_steps=args.total_steps,
+                num_warmup_steps=config.warmup_steps,
+                num_training_steps=config.total_steps,
             )
             self.scheduler_d = get_cosine_schedule_with_warmup(
                 self.inner_optimizer_d,
-                num_warmup_steps=args.warmup_steps,
-                num_training_steps=args.total_steps,
+                num_warmup_steps=config.warmup_steps,
+                num_training_steps=config.total_steps,
             )
             self.params_offloaded_g = get_offloaded_param(
                 self.outer_optimizer_g, device=self.device
@@ -102,8 +111,8 @@ class DistributedTrainer:
         else:
             self.scheduler = get_cosine_schedule_with_warmup(
                 self.inner_optimizer,
-                num_warmup_steps=args.warmup_steps,
-                num_training_steps=args.total_steps,
+                num_warmup_steps=config.warmup_steps,
+                num_training_steps=config.total_steps,
             )
             self.params_offloaded = get_offloaded_param(
                 self.outer_optimizer, device=self.device
@@ -112,7 +121,7 @@ class DistributedTrainer:
         # Other initialization
         self.scaler = GradScaler(device=self.device, enabled=(self.device == "cuda"))
         self.gradient_accumulation_steps = (
-            args.batch_size // args.per_device_train_batch_size
+            config.batch_size // config.per_device_train_batch_size
         )
         self.params_offloaded = get_offloaded_param(
             self.outer_optimizer, device=self.device
@@ -123,18 +132,27 @@ class DistributedTrainer:
         self.total_bytes_sent, self.sync_count = 0, 0
         self.loss_batch = 0
 
+        self.start_step = 0
+        self.real_step = 0
+        self.count_inner_optimizer_steps = 0
+
         # Initialize metrics logger
         self.metrics_logger = MetricsLogger(
             local_rank=self.local_rank,
             global_rank=self.global_rank,
             world_size=self.world_size,
             device=self.device,
+            wandb_logging=self.config.wandb_logging,
         )
 
         # Log model and dataset configurations
         if self.local_rank == 0:
-            log_model_config(self.model_config, self.model)
-            log_dataset_config(self.dataset)
+            log_model_config(
+                self.model_config,
+                self.model_name,
+                wandb_logging=self.config.wandb_logging,
+            )
+            log_dataset_config(self.dataset, wandb_logging=self.config.wandb_logging)
 
     def heterogeneous_profiling(self):
         if dist.is_initialized() and self.heterogeneous:
@@ -142,14 +160,12 @@ class DistributedTrainer:
                 per_device_batch_size,
                 local_steps,
                 total_steps,
-                checkpoint_interval,
                 all_info,
-            ) = synchronize_batch_and_steps(DistributedTrainer, self.args)
+            ) = synchronize_batch_and_steps(DistributedTrainer, self.config)
             logger.info(f"Profiling results: {all_info}, Local_steps: {local_steps}")
         self.per_device_train_batch_size = per_device_batch_size
         self.local_steps = local_steps
         self.total_steps = total_steps
-        self.checkpoint_interval = checkpoint_interval
         self.heterogeneous = False
 
     def initialize_model(self, model_class):
@@ -293,7 +309,7 @@ class DistributedTrainer:
                 self.scaler.update()
                 self.inner_optimizer.zero_grad()
                 self.scheduler.step()
-
+                # here checkpoint interval is in number of steps
                 if real_step % self.checkpoint_interval == 0 and not self.heterogeneous:
                     val_stats = evaluate_model(
                         self.val_dataloader,
@@ -426,6 +442,7 @@ class DistributedTrainer:
                     real_step,
                     self.loss_batch,
                     self.sync_count,
+                    self.config.wandb_logging,
                 )
 
                 if (
@@ -433,6 +450,7 @@ class DistributedTrainer:
                     and not self.heterogeneous
                 ):
                     self.count_inner_optimizer_steps = 0
+
                     # Start timing for outer optimizer sync
                     self.metrics_logger.start_timer("outer_sync")
                     logger.info(
@@ -477,11 +495,18 @@ class DistributedTrainer:
                         sync_time=sync_time,
                         bytes_sent_mb=bytes_sent / (1024 * 1024),
                     )
-                    logger.info(f"Global rank {self.global_rank} - Local rank {self.local_rank} - Outer optimizer synced at step {real_step}")
+                    logger.info(
+                        f"Global rank {self.global_rank} - Local rank {self.local_rank} - Outer optimizer synced at step {real_step}"
+                    )
+                    self.count_outer_optimizer_steps += 1
 
-
-                if real_step % self.checkpoint_interval == 0 and not self.heterogeneous:
+                if (
+                    self.count_outer_optimizer_steps % self.checkpoint_interval == 0
+                    and not self.heterogeneous
+                ):
                     # Start timing for evaluation and checkpointing
+                    logger.info(f"Outer loop syncs: {self.count_outer_optimizer_steps}")
+                    self.count_outer_optimizer_steps = 1
                     self.metrics_logger.start_timer("evaluation")
                     val_stats = evaluate_model(
                         self.val_dataloader,
@@ -563,7 +588,6 @@ class DistributedTrainer:
                         self.global_rank,
                         self.device,
                     )
-                    dist.barrier()
                     log_stats(
                         self.local_rank,
                         real_step,
@@ -577,6 +601,7 @@ class DistributedTrainer:
                         self.local_steps,
                         self.per_device_train_batch_size,
                         self.args,
+                        self.config.wandb_logging,
                     )
                     self.save_checkpoint(step, real_step)
 
@@ -674,6 +699,7 @@ class DistributedTrainer:
                     real_step,
                     self.loss_batch,
                     self.sync_count,
+                    self.config.wandb_logging,
                 )
 
                 # Handle outer optimizer sync for DiLoCo
@@ -748,8 +774,12 @@ class DistributedTrainer:
                         bytes_sent_d_mb=bytes_sent_d / (1024 * 1024),
                         bytes_sent_g_mb=bytes_sent_g / (1024 * 1024),
                     )
-
-                if real_step % self.checkpoint_interval == 0 and not self.heterogeneous:
+                    self.count_outer_optimizer_steps += 1
+                if (
+                    self.count_outer_optimizer_steps % self.checkpoint_interval == 0
+                    and not self.heterogeneous
+                ):
+                    self.count_outer_optimizer_steps = 1
                     self.metrics_logger.start_timer("evaluation")
                     val_stats = evaluate_model(
                         self.val_dataloader,
@@ -853,8 +883,6 @@ class DistributedTrainer:
                         self.global_rank,
                         self.device,
                     )
-                    if self.optim_method != "ddp":
-                        dist.barrier()
                     log_stats(
                         self.local_rank,
                         real_step,
@@ -923,7 +951,7 @@ class DistributedTrainer:
                 self.local_steps,
                 device=self.device,
                 quantization=self.quantization,
-                sum_local_steps=self.sum_local_steps
+                sum_local_steps=self.sum_local_steps,
             )
             self.params_offloaded_d = get_offloaded_param(
                 self.outer_optimizer_d, device=self.device
@@ -1023,7 +1051,7 @@ class DistributedTrainer:
         )
 
     def load_checkpoint(self):
-        checkpoint_file = f"{self.checkpoint_path.split(".")[0]}.pth_{self.model}_{self.dataset}_node_{self.global_rank}_rank_{self.local_rank}_optim_{self.optim_method}.pth"
+        checkpoint_file = f"{str(self.checkpoint_path).split('.')[0]}.pth_{self.model}_{self.dataset}_node_{self.global_rank}_rank_{self.local_rank}_optim_{self.optim_method}.pth"
         if os.path.isfile(checkpoint_file):
             checkpoint = torch.load(checkpoint_file)
             self.model.load_state_dict(checkpoint["model_state_dict"])
@@ -1060,6 +1088,7 @@ class DistributedTrainer:
             self.total_bytes_sent = checkpoint["total_mb_sent"]
             self.sync_count = checkpoint["sync_count"]
             self.count_inner_optimizer_steps = checkpoint["count_inner_optimizer_steps"]
+            self.start_step = self.real_step
 
             logger.info(
                 f"Checkpoint loaded from step {step} for global rank {self.global_rank} and local rank {self.local_rank}"
