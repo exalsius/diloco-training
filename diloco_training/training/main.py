@@ -18,7 +18,8 @@ def main(args):
     world_size = int(os.environ["WORLD_SIZE"])
     wandb_user_key = os.environ.get("WANDB_USER_KEY", None)
     hf_token = os.environ.get("HUGGINGFACE_TOKEN", None)
-
+    os.environ["HF_HUB_HTTP_TIMEOUT"] = "60"
+    os.environ["HF_HUB_DOWNLOAD_RETRY"] = "100"
     # Convert argparse args to TrainingConfig
     config_dict = {k: v for k, v in vars(args).items() if v is not None}
     config = TrainingConfig.from_args_and_env(**config_dict)

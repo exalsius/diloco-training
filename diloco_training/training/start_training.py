@@ -36,6 +36,8 @@ def init_and_start_training(config: TrainingConfig):
     wandb_user_key = os.environ.get("WANDB_USER_KEY", None)
     hf_token = os.environ.get("HUGGINGFACE_TOKEN", None)
     pgroup_backend = "nccl" if config.device == "cuda" else "gloo"
+    os.environ["HF_HUB_HTTP_TIMEOUT"] = "60"
+    os.environ["HF_HUB_DOWNLOAD_RETRY"] = "100"
 
     logger.info("Distributed training configuration:")
     logger.info(
