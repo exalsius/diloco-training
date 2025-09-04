@@ -44,9 +44,7 @@ def init_and_start_training(config: TrainingConfig):
         f"{hostname=} {local_rank=} {global_rank=} {world_size=} {master_port=} {master_address=}"
     )
 
-    dist.init_process_group(
-        backend=pgroup_backend,
-    )
+    dist.init_process_group(backend=pgroup_backend)
 
     if config.device == "cuda":
         torch.cuda.set_device(local_rank)
@@ -127,6 +125,7 @@ def load_config_from_file(config_path: Path) -> TrainingConfig:
         TrainingConfig: Configuration loaded from file
     """
     logger.info(f"Loading configuration from file: {config_path}")
+    config_path = Path(config_path)
     try:
         if not config_path.exists():
             raise FileNotFoundError(f"Config file not found: {config_path}")
@@ -218,6 +217,11 @@ def load_config_from_args() -> TrainingConfig:
     )
     parser.add_argument(
         "--seed", type=int, default=42, help="Random seed for reproducibility."
+    )
+    parser.add_argument(
+        "--async_communication",
+        action="store_true",
+        help="Enable asynchronous communication.",
     )
 
     args = parser.parse_args()

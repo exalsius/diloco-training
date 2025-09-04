@@ -477,6 +477,7 @@ class DistributedTrainer:
                         quantization=self.quantization,
                         metrics_logger=self.metrics_logger,
                         sum_local_steps=self.sum_local_steps,
+                        async_communication=self.config.async_communication,
                     )
                     self.params_offloaded = get_offloaded_param(
                         self.outer_optimizer, device=self.device
@@ -570,6 +571,7 @@ class DistributedTrainer:
                     device=self.device,
                     metrics_logger=self.metrics_logger,
                     sum_local_steps=self.sum_local_steps,
+                    async_communication=self.config.async_communication,
                 )
                 self.params_offloaded = get_offloaded_param(
                     self.outer_optimizer, device=self.device
@@ -736,6 +738,7 @@ class DistributedTrainer:
                         quantization=self.quantization,
                         metrics_logger=self.metrics_logger,
                         sum_local_steps=self.sum_local_steps,
+                        async_communication=self.config.async_communication,
                     )
                     self.params_offloaded_d = get_offloaded_param(
                         self.outer_optimizer_d, device=self.device
@@ -758,6 +761,7 @@ class DistributedTrainer:
                         quantization=self.quantization,
                         metrics_logger=self.metrics_logger,
                         sum_local_steps=self.sum_local_steps,
+                        async_communication=self.config.async_communication,
                     )
                     self.params_offloaded_g = get_offloaded_param(
                         self.outer_optimizer_g, device=self.device
@@ -847,6 +851,7 @@ class DistributedTrainer:
                         quantization=self.quantization,
                         metrics_logger=self.metrics_logger,
                         sum_local_steps=self.sum_local_steps,
+                        async_communication=self.config.async_communication,
                     )
                     self.params_offloaded_d = get_offloaded_param(
                         self.outer_optimizer_d, device=self.device
@@ -868,6 +873,7 @@ class DistributedTrainer:
                         quantization=self.quantization,
                         metrics_logger=self.metrics_logger,
                         sum_local_steps=self.sum_local_steps,
+                        async_communication=self.config.async_communication,
                     )
                     self.params_offloaded_g = get_offloaded_param(
                         self.outer_optimizer_g, device=self.device
