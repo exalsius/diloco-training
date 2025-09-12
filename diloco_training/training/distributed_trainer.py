@@ -166,7 +166,9 @@ class DistributedTrainer:
                 self.config, self.local_rank, self.global_rank, self.world_size
             )
 
-            logger.info(f"Profiling results: {all_info}, Local_steps: {local_steps}")
+            logger.info(
+                f"Profiling results: {all_info}, Local_steps: {local_steps}, Total steps: {total_steps}"
+            )
 
             self.per_device_train_batch_size = per_device_batch_size
             self.local_steps = local_steps
