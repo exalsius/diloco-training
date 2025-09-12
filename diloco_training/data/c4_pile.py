@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from datasets import load_dataset
 from torch.utils.data import DataLoader, IterableDataset
+from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import (
     AutoTokenizer,
     DataCollatorForLanguageModeling,
@@ -34,7 +35,7 @@ class StreamingC4Dataset(IterableDataset):
         if split == "validation":
             self.dataset = load_dataset(
                 dataset_name, "en", split=split, streaming=True, trust_remote_code=True
-            ).shuffle(buffer_size=10000)
+            )
         else:
             self.dataset = load_dataset(
                 dataset_name, "en", split=split, streaming=True, trust_remote_code=True
@@ -101,7 +102,7 @@ def get_c4_pile(
     tokenizer = create_tokenizer(config)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
-    train_loader = DataLoader(
+    train_loader = StatefulDataLoader(
         dataset,
         batch_size=per_device_train_batch_size,
         collate_fn=data_collator,
@@ -115,7 +116,7 @@ def get_c4_pile(
     tokenizer = create_tokenizer(config)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
-    val_loader = DataLoader(
+    val_loader = StatefulDataLoader(
         dataset,
         batch_size=per_device_train_batch_size,
         collate_fn=data_collator,

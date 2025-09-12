@@ -43,8 +43,12 @@ def init_and_start_training(config: TrainingConfig):
     logger.info(
         f"{hostname=} {local_rank=} {global_rank=} {world_size=} {master_port=} {master_address=}"
     )
-
-    dist.init_process_group(backend=pgroup_backend)
+    dist.init_process_group(
+        backend=pgroup_backend,
+        init_method=f"tcp://10.42.0.63:29500",
+        world_size=world_size,
+        rank=global_rank    
+    )
 
     if config.device == "cuda":
         torch.cuda.set_device(local_rank)
