@@ -12,13 +12,13 @@ def profile_gpu(
     local_rank: int,
     global_rank: int,
     world_size: int,
-    max_batch_size: int = 256,
+    max_batch_size: int = 512,
     n_trials: int = 10,
 ):
     """Profile GPU performance to find optimal batch size."""
     from diloco_training.training.distributed_trainer import DistributedTrainer
 
-    device_batch_size = 32
+    device_batch_size = 64
     found = 1
     avg_time = None
 
@@ -102,6 +102,41 @@ def synchronize_batch_and_steps(
         total_steps_list.append(steps)
 
     # Group GPUs within 5% of each other's time_per_batch and assign max values in group
+    groups = []
+    for i, info in enumerate(all_info):
+        group = [
+            j
+            for j, other in enumerate(all_info)
+            if abs(other["time_per_batch"] - info["time_per_batch"])
+            / info["time_per_batch"]
+            <= 0.05
+        ]
+        if group not in groups:
+            groups.append(group)
+
+    # Calculate group assignments and ensure sync compatibility
+    group_assignments = {}
+    sync_multipliers = []
+
+    for group in groups:
+        group_local_steps = max(local_steps_list[j] for j in group)
+        group_total_steps = max(total_steps_list[j] for j in group)
+
+        # Calculate how many sync rounds this would be
+        sync_multiplier = group_total_steps // group_local_steps
+        sync_multipliers.append(sync_multiplier)
+
+        for gpu_idx in group:
+            group_assignments[gpu_idx] = (
+                group_local_steps,
+                group_total_steps,
+                sync_multiplier,
+            )
+
+    # Use the maximum sync multiplier across all groups to ensure consistency
+    max_sync_multiplier = max(sync_multipliers)
+
+    # Recalculate total_steps for all groups using the same multiplier
     assigned_steps = None
     assigned_total_steps = None
 
@@ -114,7 +149,8 @@ def synchronize_batch_and_steps(
             <= 0.05
         ]
         group_local_steps = max(local_steps_list[j] for j in group)
-        group_total_steps = max(total_steps_list[j] for j in group)
+        # Ensure total_steps is a multiple of local_steps and uses consistent multiplier
+        group_total_steps = group_local_steps * max_sync_multiplier
 
         if i == dist.get_rank():
             assigned_steps = group_local_steps

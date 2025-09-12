@@ -166,7 +166,9 @@ class DistributedTrainer:
                 self.config, self.local_rank, self.global_rank, self.world_size
             )
 
-            logger.info(f"Profiling results: {all_info}, Local_steps: {local_steps}")
+            logger.info(
+                f"Profiling results: {all_info}, Local_steps: {local_steps}, Total steps: {total_steps}"
+            )
 
             self.per_device_train_batch_size = per_device_batch_size
             self.local_steps = local_steps
@@ -477,6 +479,7 @@ class DistributedTrainer:
                         quantization=self.quantization,
                         metrics_logger=self.metrics_logger,
                         sum_local_steps=self.sum_local_steps,
+                        async_communication=self.config.async_communication,
                     )
                     self.params_offloaded = get_offloaded_param(
                         self.outer_optimizer, device=self.device
@@ -570,6 +573,7 @@ class DistributedTrainer:
                     device=self.device,
                     metrics_logger=self.metrics_logger,
                     sum_local_steps=self.sum_local_steps,
+                    async_communication=self.config.async_communication,
                 )
                 self.params_offloaded = get_offloaded_param(
                     self.outer_optimizer, device=self.device
@@ -736,6 +740,7 @@ class DistributedTrainer:
                         quantization=self.quantization,
                         metrics_logger=self.metrics_logger,
                         sum_local_steps=self.sum_local_steps,
+                        async_communication=self.config.async_communication,
                     )
                     self.params_offloaded_d = get_offloaded_param(
                         self.outer_optimizer_d, device=self.device
@@ -758,6 +763,7 @@ class DistributedTrainer:
                         quantization=self.quantization,
                         metrics_logger=self.metrics_logger,
                         sum_local_steps=self.sum_local_steps,
+                        async_communication=self.config.async_communication,
                     )
                     self.params_offloaded_g = get_offloaded_param(
                         self.outer_optimizer_g, device=self.device
@@ -847,6 +853,7 @@ class DistributedTrainer:
                         quantization=self.quantization,
                         metrics_logger=self.metrics_logger,
                         sum_local_steps=self.sum_local_steps,
+                        async_communication=self.config.async_communication,
                     )
                     self.params_offloaded_d = get_offloaded_param(
                         self.outer_optimizer_d, device=self.device
@@ -868,6 +875,7 @@ class DistributedTrainer:
                         quantization=self.quantization,
                         metrics_logger=self.metrics_logger,
                         sum_local_steps=self.sum_local_steps,
+                        async_communication=self.config.async_communication,
                     )
                     self.params_offloaded_g = get_offloaded_param(
                         self.outer_optimizer_g, device=self.device

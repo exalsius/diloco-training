@@ -41,6 +41,9 @@ class TrainingConfig(BaseSettings):
         default="sgd", description="Optimizer method"
     )
     quantization: bool = Field(default=False, description="Enable quantization")
+    async_communication: bool = Field(
+        default=False, description="Enable asynchronous communication"
+    )
 
     # Checkpoint configuration
     checkpoint_path: Path = Field(

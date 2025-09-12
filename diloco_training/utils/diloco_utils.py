@@ -300,6 +300,7 @@ def update_outer_optimizer(
     quantization=False,
     metrics_logger=None,
     sum_local_steps=10,
+    async_communication=False,
 ):
     # Start timing for reduce operation
     reduce_start_time = time.time()
@@ -333,7 +334,7 @@ def update_outer_optimizer(
                     param.grad.div_(world_size)
 
             else:
-                dist.all_reduce(param.grad, op=op, async_op=True)
+                dist.all_reduce(param.grad, op=op, async_op=async_communication)
                 # Manual averaging after SUM since dist.ReduceOp.AVG is not supported with gloo
                 # and we use dist.ReduceOp.SUM instead
                 if device == "cpu":
