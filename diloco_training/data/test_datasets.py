@@ -1,5 +1,5 @@
 import torch
-from torch.utils.data import DataLoader
+from torchdata.stateful_dataloader import StatefulDataLoader
 
 
 class SequenceTestDataset(torch.utils.data.IterableDataset):
@@ -50,7 +50,7 @@ class SequenceTestDataset(torch.utils.data.IterableDataset):
                 }
 
         # Create a dataloader with specified batch size
-        return sequence_generator, DataLoader(
+        return sequence_generator, StatefulDataLoader(
             cls(sequence_generator, num_samples),
             batch_size=batch_size,
             num_workers=0,  # Important for infinite datasets

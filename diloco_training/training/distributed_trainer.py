@@ -287,11 +287,12 @@ class DistributedTrainer:
             self._train_diloco()
 
     def _train_ddp(self):
-        for step, batch in enumerate(self.train_dataloader):
-            if step < self.start_step:
-                continue
-            if step == self.start_step:
-                logger.info(f"Starting DDP training from step {self.start_step}...")
+        step = self.start_step
+        for _, batch in enumerate(self.train_dataloader):
+            # if step < self.start_step:
+            #     continue
+            # if step == self.start_step:
+            #     logger.info(f"Starting DDP training from step {self.start_step}...")
 
             real_step = (step + 1) // self.gradient_accumulation_steps
             step_within_grad_acc = (step + 1) % self.gradient_accumulation_steps
@@ -370,16 +371,17 @@ class DistributedTrainer:
                     )
                     self.save_checkpoint(step, real_step)
                 return
+            step += 1
 
     def _train_diloco(self):
+        step = self.start_step
+        print("Step:", step)
+        for _, batch in enumerate(self.train_dataloader):
+            # if step < self.start_step:
+            #     continue
 
-        for step, batch in enumerate(self.train_dataloader):
-
-            if step < self.start_step:
-                continue
-
-            if step == self.start_step:
-                logger.info(f"Starting training from step {self.start_step}...")
+            # if step == self.start_step:
+            #     logger.info(f"Starting training from step {self.start_step}...")
 
             real_step = (step + 1) // self.gradient_accumulation_steps
             step_within_grad_acc = (step + 1) % self.gradient_accumulation_steps
@@ -617,14 +619,16 @@ class DistributedTrainer:
                 # Log final timing summary
                 self.metrics_logger.log_timing_summary(real_step)
                 break
+            step += 1
 
     def _train_gan(self):
         """Training loop for GAN models with enhanced metrics logging"""
-        for step, batch in enumerate(self.train_dataloader):
-            if step < self.start_step:
-                continue
-            if step == self.start_step:
-                logger.info(f"Starting GAN training from step {self.start_step}...")
+        step = self.start_step
+        for _, batch in enumerate(self.train_dataloader):
+            # if step < self.start_step:
+            #     continue
+            # if step == self.start_step:
+            #     logger.info(f"Starting GAN training from step {self.start_step}...")
 
             real_step = (step + 1) // self.gradient_accumulation_steps
             step_within_grad_acc = (step + 1) % self.gradient_accumulation_steps
@@ -915,6 +919,7 @@ class DistributedTrainer:
                 # Log final timing summary
                 self.metrics_logger.log_timing_summary(real_step)
                 return
+            step += 1
 
     def _train_gan_step(self, batch, real_step, step_within_grad_acc):
         """Handle GAN-specific training step with alternating D and G updates"""
@@ -1018,8 +1023,14 @@ class DistributedTrainer:
         self.sync_count += 1
 
     def save_checkpoint(self, step, real_step):
+        try:
+            loader_state = self.train_dataloader.state_dict()
+        except Exception as e:
+            logger.warning(f"Could not get dataloader state_dict: {e}")
+            loader_state = None
         checkpoint = {
             "model_state_dict": self.model.state_dict(),
+            "train_dataloader": loader_state,
             "step": step,
             "optim_method": self.optim_method,
             "real_step": real_step,
@@ -1028,7 +1039,6 @@ class DistributedTrainer:
             "sync_count": self.sync_count,
             "count_inner_optimizer_steps": self.count_inner_optimizer_steps,
         }
-
         if self.is_gan:
             checkpoint.update(
                 {
@@ -1057,14 +1067,15 @@ class DistributedTrainer:
                     self.outer_optimizer.state_dict()
                 )
 
-        checkpoint_file = f"{self.checkpoint_path}_{self.args.model}_{self.args.dataset}_node_{self.global_rank}_rank_{self.local_rank}_optim_{self.optim_method}.pth"
+        checkpoint_file = f"{str(self.checkpoint_path).split('.')[0]}.pth_node_{self.global_rank}_rank_{self.local_rank}_optim_{self.optim_method}.pth"
         torch.save(checkpoint, checkpoint_file)
         logger.info(
             f"Checkpoint saved for global rank {self.global_rank} and local rank {self.local_rank}, optim method {self.optim_method}"
         )
 
     def load_checkpoint(self):
-        checkpoint_file = f"{str(self.checkpoint_path).split('.')[0]}.pth_{self.model}_{self.dataset}_node_{self.global_rank}_rank_{self.local_rank}_optim_{self.optim_method}.pth"
+        checkpoint_file = f"{str(self.checkpoint_path).split('.')[0]}.pth_node_{self.global_rank}_rank_{self.local_rank}_optim_{self.optim_method}.pth"
+        print(checkpoint_file)
         if os.path.isfile(checkpoint_file):
             checkpoint = torch.load(checkpoint_file)
             self.model.load_state_dict(checkpoint["model_state_dict"])
@@ -1097,11 +1108,18 @@ class DistributedTrainer:
 
             step = checkpoint["step"] + 1
             self.loss_batch = checkpoint["loss_batch"]
+            if checkpoint["train_dataloader"] is None:
+                logger.warning("No dataloader state found in checkpoint.")
+            else:
+                self.train_dataloader.load_state_dict(checkpoint["train_dataloader"])
+                print(
+                    f"Resuming from dataloader checkpoint: {checkpoint['train_dataloader']}"
+                )
             self.real_step = checkpoint["real_step"]
             self.total_bytes_sent = checkpoint["total_mb_sent"]
             self.sync_count = checkpoint["sync_count"]
             self.count_inner_optimizer_steps = checkpoint["count_inner_optimizer_steps"]
-            self.start_step = self.real_step
+            self.start_step = step
 
             logger.info(
                 f"Checkpoint loaded from step {step} for global rank {self.global_rank} and local rank {self.local_rank}"

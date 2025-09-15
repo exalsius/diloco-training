@@ -43,7 +43,6 @@ def init_and_start_training(config: TrainingConfig):
     logger.info(
         f"{hostname=} {local_rank=} {global_rank=} {world_size=} {master_port=} {master_address=}"
     )
-
     dist.init_process_group(backend=pgroup_backend)
 
     if config.device == "cuda":

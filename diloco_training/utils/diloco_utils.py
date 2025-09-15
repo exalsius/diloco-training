@@ -99,7 +99,7 @@ def wandb_setup(
             project=project_name,
             group=group,
             name=f"{group}-worker-{global_rank}-{local_rank}",
-            id=run_id,
+            id=f"{run_id}{global_rank}",
             resume="allow",
             config=wandb_config,
             tags=tags,
