@@ -372,6 +372,7 @@ class DistributedTrainer:
                     self.save_checkpoint(step, real_step)
                 return
             step += 1
+
     def _train_diloco(self):
         step = self.start_step
         print("Step:", step)
@@ -919,7 +920,6 @@ class DistributedTrainer:
                 self.metrics_logger.log_timing_summary(real_step)
                 return
             step += 1
-            
 
     def _train_gan_step(self, batch, real_step, step_within_grad_acc):
         """Handle GAN-specific training step with alternating D and G updates"""
@@ -1103,10 +1103,10 @@ class DistributedTrainer:
 
             step = checkpoint["step"] + 1
             self.loss_batch = checkpoint["loss_batch"]
-            self.train_dataloader.load_state_dict(
-                checkpoint["train_dataloader"]
+            self.train_dataloader.load_state_dict(checkpoint["train_dataloader"])
+            print(
+                f"Resuming from dataloader checkpoint: {checkpoint['train_dataloader']}"
             )
-            print(f"Resuming from dataloader checkpoint: {checkpoint['train_dataloader']}")
             self.real_step = checkpoint["real_step"]
             self.total_bytes_sent = checkpoint["total_mb_sent"]
             self.sync_count = checkpoint["sync_count"]

@@ -3,7 +3,7 @@ from itertools import islice
 from typing import Any, Dict, List, Optional
 
 from datasets import load_dataset
-from torch.utils.data import DataLoader, IterableDataset
+from torch.utils.data import IterableDataset
 from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import (
     AutoTokenizer,

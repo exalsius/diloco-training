@@ -8,7 +8,8 @@ from itertools import islice
 import torch
 import torchvision.transforms as transforms
 from datasets import load_dataset
-from torch.utils.data import DataLoader, IterableDataset
+from torch.utils.data import IterableDataset
+from torchdata.stateful_dataloader import StatefulDataLoader
 
 
 class StreamingImageNetDataset(IterableDataset):
@@ -126,7 +127,7 @@ def get_imagenet(
     # torch_dataset = HuggingFaceDataset(dataset, transform)
 
     # Create DataLoader
-    train_loader = DataLoader(
+    train_loader = StatefulDataLoader(
         dataset,
         batch_size=per_device_train_batch_size,
         num_workers=4,
@@ -135,7 +136,7 @@ def get_imagenet(
 
     # Create validation dataset (for simplicity, using the same dataset)
     val_dataset = StreamingImageNetDataset(dataset_name, 0, 1, "validation")
-    val_loader = DataLoader(
+    val_loader = StatefulDataLoader(
         val_dataset,
         batch_size=per_device_train_batch_size,
         num_workers=4,
