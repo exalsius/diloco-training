@@ -1023,9 +1023,14 @@ class DistributedTrainer:
         self.sync_count += 1
 
     def save_checkpoint(self, step, real_step):
+        try:
+            loader_state = self.train_dataloader.state_dict()
+        except Exception as e:
+            logger.warning(f"Could not get dataloader state_dict: {e}")
+            loader_state = None
         checkpoint = {
             "model_state_dict": self.model.state_dict(),
-            "train_dataloader": self.train_dataloader.state_dict(),
+            "train_dataloader": loader_state,
             "step": step,
             "optim_method": self.optim_method,
             "real_step": real_step,
@@ -1103,10 +1108,13 @@ class DistributedTrainer:
 
             step = checkpoint["step"] + 1
             self.loss_batch = checkpoint["loss_batch"]
-            self.train_dataloader.load_state_dict(checkpoint["train_dataloader"])
-            print(
-                f"Resuming from dataloader checkpoint: {checkpoint['train_dataloader']}"
-            )
+            if checkpoint["train_dataloader"] is None:
+                logger.warning("No dataloader state found in checkpoint.")
+            else:
+                self.train_dataloader.load_state_dict(checkpoint["train_dataloader"])
+                print(
+                    f"Resuming from dataloader checkpoint: {checkpoint['train_dataloader']}"
+                )
             self.real_step = checkpoint["real_step"]
             self.total_bytes_sent = checkpoint["total_mb_sent"]
             self.sync_count = checkpoint["sync_count"]
