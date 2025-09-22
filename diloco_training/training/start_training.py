@@ -43,7 +43,9 @@ def init_and_start_training(config: TrainingConfig):
     logger.info(
         f"{hostname=} {local_rank=} {global_rank=} {world_size=} {master_port=} {master_address=}"
     )
-    dist.init_process_group(backend=pgroup_backend)
+    dist.init_process_group(
+        backend=pgroup_backend,
+    )
 
     if config.device == "cuda":
         torch.cuda.set_device(local_rank)
@@ -77,10 +79,10 @@ def init_and_start_training(config: TrainingConfig):
         trainer.heterogeneous_profiling()
         config = config.model_copy(
             update={
-                "heterogeneous": False,  # srnbckr: not sure why we would set heterogenous to false here?
+                "heterogeneous": False,
                 "local_steps": trainer.local_steps,
                 "per_device_train_batch_size": trainer.per_device_train_batch_size,
-                "total_steps": trainer.total_steps,
+                "total_steps": trainer.total_steps,  # total_steps is now distributed properly
                 "checkpoint_interval": trainer.checkpoint_interval,
             }
         )
