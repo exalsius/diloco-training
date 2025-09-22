@@ -18,7 +18,7 @@ def profile_gpu(
     """Profile GPU performance to find optimal batch size."""
     from diloco_training.training.distributed_trainer import DistributedTrainer
 
-    device_batch_size = 64
+    device_batch_size = 32
     found = 1
     avg_time = None
 
@@ -96,18 +96,25 @@ def synchronize_batch_and_steps(
     total_speed = sum(speeds)
 
     # Distribute total work proportionally based on speed
+    # Each worker gets a portion of the total_steps based on its relative speed
+    # The sum of all worker steps should equal the original total_steps
     total_steps_list = []
     for speed in speeds:
-        steps = int(round(config.total_steps * speed / total_speed * world_size))
+        steps = int(round(config.total_steps * speed / total_speed))
         total_steps_list.append(steps)
 
     # Group GPUs within 5% of each other's time_per_batch and assign max values in group
     groups = []
     for i, info in enumerate(all_info):
+        if info is None or "time_per_batch" not in info:
+            continue
+
         group = [
             j
             for j, other in enumerate(all_info)
-            if abs(other["time_per_batch"] - info["time_per_batch"])
+            if other is not None
+            and "time_per_batch" in other
+            and abs(other["time_per_batch"] - info["time_per_batch"])
             / info["time_per_batch"]
             <= 0.05
         ]
@@ -141,10 +148,15 @@ def synchronize_batch_and_steps(
     assigned_total_steps = None
 
     for i, info in enumerate(all_info):
+        if info is None or "time_per_batch" not in info:
+            continue
+
         group = [
             j
             for j, other in enumerate(all_info)
-            if abs(other["time_per_batch"] - info["time_per_batch"])
+            if other is not None
+            and "time_per_batch" in other
+            and abs(other["time_per_batch"] - info["time_per_batch"])
             / info["time_per_batch"]
             <= 0.05
         ]

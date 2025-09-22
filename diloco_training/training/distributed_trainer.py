@@ -173,6 +173,7 @@ class DistributedTrainer:
             self.per_device_train_batch_size = per_device_batch_size
             self.local_steps = local_steps
             self.total_steps = total_steps
+            self.all_info = all_info
             self.heterogeneous = False
 
     def initialize_model(self, model_class):
@@ -278,7 +279,13 @@ class DistributedTrainer:
 
     def train(self):
         self.model.train()
+        # Distribute total steps among workers if not in heterogeneous mode
+        if not self.heterogeneous:
+            self.total_steps = self.distribute_total_steps()
+
         logger.info(f"Gradient accumulation steps: {self.gradient_accumulation_steps}")
+        logger.info(f"Worker {self.global_rank} will execute {self.total_steps} steps")
+
         if self.is_gan:
             self._train_gan()
         elif self.optim_method == "ddp":
@@ -1128,3 +1135,30 @@ class DistributedTrainer:
             logger.info(
                 f"No checkpoint found for global rank {self.global_rank} and local rank {self.local_rank}, starting from scratch"
             )
+
+    def distribute_total_steps(self):
+        """
+        Distribute total steps among workers based on their relative speeds.
+        For non-heterogeneous setup, this simply divides total steps evenly.
+        """
+        if self.world_size == 1:
+            return self.total_steps
+
+        if hasattr(self, "all_info") and self.all_info:
+            # Use profiling information if available (from heterogeneous setup)
+            speeds = []
+            for info in self.all_info:
+                if info is not None and "time_per_batch" in info:
+                    # Lower time_per_batch means higher speed
+                    speeds.append(1.0 / info["time_per_batch"])
+                else:
+                    # Default speed if info is missing
+                    speeds.append(1.0)
+
+            total_speed = sum(speeds)
+            my_speed = speeds[self.global_rank]
+            my_steps = int(round(self.config.total_steps * my_speed / total_speed))
+            return max(1, my_steps)  # Ensure at least 1 step
+        else:
+            # For non-heterogeneous setup, divide steps evenly
+            return max(1, self.config.total_steps // self.world_size)
