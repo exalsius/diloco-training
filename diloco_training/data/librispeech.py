@@ -21,12 +21,12 @@ class StreamingLibriSpeechDataset(IterableDataset):
         """
         if split == "validation.clean":
             self.dataset = load_dataset(
-                dataset_name, split=split, streaming=True, trust_remote_code=True
+                dataset_name, split=split, trust_remote_code=True
             )
         else:
             # For training, we don't shuffle
             self.dataset = load_dataset(
-                dataset_name, split=split, streaming=True, trust_remote_code=True
+                dataset_name, split=split, trust_remote_code=True
             )
         self.rank = rank
         self.world_size = world_size
@@ -58,10 +58,11 @@ class StreamingLibriSpeechDataset(IterableDataset):
         Yields:
             Preprocessed samples from the dataset
         """
-        iterator = iter(self.dataset)
-        partitioned_iterator = islice(iterator, self.rank, None, self.world_size)
-        for item in partitioned_iterator:
-            yield self.preprocess(item)
+        while True:
+            iterator = iter(self.dataset)
+            partitioned_iterator = islice(iterator, self.rank, None, self.world_size)
+            for item in partitioned_iterator:
+                yield self.preprocess(item)
 
 
 def get_librispeech(

@@ -116,7 +116,7 @@ def synchronize_batch_and_steps(
             and "time_per_batch" in other
             and abs(other["time_per_batch"] - info["time_per_batch"])
             / info["time_per_batch"]
-            <= 0.05
+            <= 0.10
         ]
         if group not in groups:
             groups.append(group)
@@ -158,7 +158,7 @@ def synchronize_batch_and_steps(
             and "time_per_batch" in other
             and abs(other["time_per_batch"] - info["time_per_batch"])
             / info["time_per_batch"]
-            <= 0.05
+            <= 0.10
         ]
         group_local_steps = max(local_steps_list[j] for j in group)
         # Ensure total_steps is a multiple of local_steps and uses consistent multiplier

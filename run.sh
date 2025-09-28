@@ -20,7 +20,7 @@ export MASTER_PORT="29500"
 torchrun \
   --nnodes=2 \
   --nproc_per_node=2 \
-  --node_rank=0 \
+  --node_rank=1 \
   --rdzv_backend=c10d \
   --rdzv_endpoint=10.42.0.52:29500 \
   diloco_training/training/start_training.py \
