@@ -3,6 +3,7 @@ from itertools import islice
 from datasets import load_dataset
 from torch.utils.data import DataLoader, IterableDataset
 from transformers import Wav2Vec2Processor
+from torchdata.stateful_dataloader import StatefulDataLoader
 
 
 class StreamingLibriSpeechDataset(IterableDataset):
@@ -21,7 +22,7 @@ class StreamingLibriSpeechDataset(IterableDataset):
         if split == "validation.clean":
             self.dataset = load_dataset(
                 dataset_name, split=split, streaming=True, trust_remote_code=True
-            ).shuffle(buffer_size=10000)
+            )
         else:
             # For training, we don't shuffle
             self.dataset = load_dataset(
@@ -114,18 +115,22 @@ def get_librispeech(
 
         return batch
 
-    train_loader = DataLoader(
+    train_loader = StatefulDataLoader(
         dataset,
         batch_size=per_device_train_batch_size,
         collate_fn=collate_fn,
+        num_workers=8,
+        pin_memory=True
     )
 
     dataset = StreamingLibriSpeechDataset("librispeech_asr", 0, 1, "validation.clean")
 
-    val_loader = DataLoader(
+    val_loader = StatefulDataLoader(
         dataset,
         batch_size=per_device_train_batch_size,
         collate_fn=collate_fn,
+        num_workers=8,
+        pin_memory=True,
     )
 
     return train_loader, val_loader
