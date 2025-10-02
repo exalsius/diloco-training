@@ -187,11 +187,15 @@ class DistributedTrainer:
             try:
                 compile_backend = getattr(self.config, "compile_backend", "inductor")
                 compile_mode = getattr(self.config, "compile_mode", "default")
-                logger.info(f"Compiling model with torch.compile backend={compile_backend} mode={compile_mode}")
+                logger.info(
+                    f"Compiling model with torch.compile backend={compile_backend} mode={compile_mode}"
+                )
                 model = torch.compile(model, backend=compile_backend, mode=compile_mode)
                 logger.info("torch.compile succeeded")
             except Exception as e:
-                logger.warning(f"torch.compile failed, continuing without compilation: {e}")
+                logger.warning(
+                    f"torch.compile failed, continuing without compilation: {e}"
+                )
         if self.optim_method == "ddp":
             model = torch.nn.parallel.DistributedDataParallel(
                 model, device_ids=[self.local_rank] if self.device == "cuda" else None

@@ -5,7 +5,8 @@ LOG_CONFIG = {
     "disable_existing_loggers": False,
     "formatters": {
         "detailed": {
-            "format": "%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
+            # Added milliseconds via %(msecs)03d
+            "format": "%(asctime)s.%(msecs)03d [%(levelname)s] [%(name)s] %(message)s",
             "datefmt": "%Y-%m-%d %H:%M:%S",
         },
     },

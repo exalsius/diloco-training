@@ -93,7 +93,8 @@ class TrainingConfig(BaseSettings):
         default="inductor", description="torch.compile backend"
     )
     compile_mode: str = Field(
-        default="default", description="torch.compile mode (default, reduce-overhead, max-autotune)"
+        default="default",
+        description="torch.compile mode (default, reduce-overhead, max-autotune)",
     )
 
     class Config:

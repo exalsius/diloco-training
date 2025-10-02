@@ -1,7 +1,7 @@
 from itertools import islice
 
 from datasets import load_dataset
-from torch.utils.data import DataLoader, IterableDataset
+from torch.utils.data import IterableDataset
 from transformers import Wav2Vec2Processor
 from torchdata.stateful_dataloader import StatefulDataLoader
 
@@ -30,9 +30,7 @@ class StreamingLibriSpeechDataset(IterableDataset):
             )
         self.rank = rank
         self.world_size = world_size
-        self.processor = Wav2Vec2Processor.from_pretrained(
-            "facebook/wav2vec2-base"
-        )
+        self.processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base")
 
     def normalize_text(self, text: str) -> str:
         # Basic LibriSpeech style normalization (could be extended)
@@ -111,7 +109,9 @@ def get_librispeech(
                 pad_to_multiple_of=8,
                 return_tensors="pt",
             )
-        labels = labels_batch["input_ids"].masked_fill(labels_batch.attention_mask.ne(1), -100)
+        labels = labels_batch["input_ids"].masked_fill(
+            labels_batch.attention_mask.ne(1), -100
+        )
         batch["labels"] = labels
         return batch
 
@@ -120,7 +120,7 @@ def get_librispeech(
         batch_size=per_device_train_batch_size,
         collate_fn=collate_fn,
         num_workers=8,
-        pin_memory=True
+        pin_memory=True,
     )
 
     dataset = StreamingLibriSpeechDataset("librispeech_asr", 0, 1, "validation.clean")
