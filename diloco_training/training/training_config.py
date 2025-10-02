@@ -85,6 +85,17 @@ class TrainingConfig(BaseSettings):
     seed: int = Field(default=42, description="Random seed for reproducibility")
     wandb_logging: bool = Field(default=True, description="Enable WandB logging")
 
+    # torch.compile settings
+    compile_model: bool = Field(
+        default=False, description="Enable torch.compile for the model"
+    )
+    compile_backend: str = Field(
+        default="inductor", description="torch.compile backend"
+    )
+    compile_mode: str = Field(
+        default="default", description="torch.compile mode (default, reduce-overhead, max-autotune)"
+    )
+
     class Config:
         env_prefix = "DILOCO_"  # Environment variables will be prefixed with DILOCO_
         case_sensitive = False  # Allow case-insensitive env vars

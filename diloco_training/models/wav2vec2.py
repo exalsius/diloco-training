@@ -1,7 +1,7 @@
-from transformers import Wav2Vec2ForCTC
+from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
 from diloco_training.data.librispeech import get_librispeech
-
+import torch
 
 def get_wav2vec2(
     hidden_size: int = 128,
@@ -22,10 +22,17 @@ def get_wav2vec2(
         Configured Wav2Vec2Model instance
     """
     # Load model config (same as pretrained one)
-    config = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h").config
+    processor = Wav2Vec2Processor.from_pretrained(
+            "facebook/wav2vec2-base"
+        )
+    config = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base",
+                                             ctc_loss_reduction="mean", 
+                                             pad_token_id=processor.tokenizer.pad_token_id).config
 
     # Reset model with random weights
-    model_class = Wav2Vec2ForCTC(config)
+    model_class = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base",
+                                             ctc_loss_reduction="mean", 
+                                             pad_token_id=processor.tokenizer.pad_token_id)
     return config, model_class
 
 

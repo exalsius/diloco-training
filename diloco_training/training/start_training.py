@@ -43,9 +43,7 @@ def init_and_start_training(config: TrainingConfig):
     logger.info(
         f"{hostname=} {local_rank=} {global_rank=} {world_size=} {master_port=} {master_address=}"
     )
-    dist.init_process_group(
-        backend=pgroup_backend,
-    )
+    dist.init_process_group(backend=pgroup_backend)
 
     if config.device == "cuda":
         torch.cuda.set_device(local_rank)
@@ -223,6 +221,22 @@ def load_config_from_args() -> TrainingConfig:
         "--async_communication",
         action="store_true",
         help="Enable asynchronous communication.",
+    )
+    # torch.compile options
+    parser.add_argument(
+        "--compile_model", action="store_true", help="Enable torch.compile."
+    )
+    parser.add_argument(
+        "--compile_backend",
+        type=str,
+        default="inductor",
+        help="torch.compile backend (e.g. inductor, aot_eager).",
+    )
+    parser.add_argument(
+        "--compile_mode",
+        type=str,
+        default="default",
+        help="torch.compile mode (default, reduce-overhead, max-autotune).",
     )
 
     args = parser.parse_args()

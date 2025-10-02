@@ -18,7 +18,7 @@ def profile_gpu(
     """Profile GPU performance to find optimal batch size."""
     from diloco_training.training.distributed_trainer import DistributedTrainer
 
-    device_batch_size = 32
+    device_batch_size = 16
     found = 1
     avg_time = None
 
@@ -116,7 +116,7 @@ def synchronize_batch_and_steps(
             and "time_per_batch" in other
             and abs(other["time_per_batch"] - info["time_per_batch"])
             / info["time_per_batch"]
-            <= 0.10
+            <= 0.15
         ]
         if group not in groups:
             groups.append(group)
@@ -158,7 +158,7 @@ def synchronize_batch_and_steps(
             and "time_per_batch" in other
             and abs(other["time_per_batch"] - info["time_per_batch"])
             / info["time_per_batch"]
-            <= 0.10
+            <= 0.15
         ]
         group_local_steps = max(local_steps_list[j] for j in group)
         # Ensure total_steps is a multiple of local_steps and uses consistent multiplier
