@@ -10,18 +10,16 @@ export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export GLOO_USE_V6=0
 export GLOO_SOCKET_IFNAME=eth0 
 # soeren: this is my wandb api key
-export WANDB_USER_KEY=X
-export HUGGINGFACE_TOKEN=X
+export WANDB_USER_KEY=6800d2a81420c3adf2b8f658e79f63bd4003b3e1
+export HUGGINGFACE_TOKEN=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
 export TORCH_CPP_LOG_LEVEL=ERROR
 export HF_HOME="/workspace/datasets"
 export MASTER_ADDR="10.42.0.52"
 export MASTER_PORT="29500"
 # Torchrun command
 torchrun \
-  --nnodes=2 \
+  --nnodes=1 \
   --nproc_per_node=2 \
   --node_rank=0 \
-  --rdzv_backend=c10d \
-  --rdzv_endpoint=10.42.0.52:29500 \
   diloco_training/training/start_training.py \
   --config config.yaml

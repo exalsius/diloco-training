@@ -1,8 +1,9 @@
 from itertools import islice
 
 from datasets import load_dataset
-from torch.utils.data import DataLoader, IterableDataset
+from torch.utils.data import IterableDataset
 from transformers import Wav2Vec2Processor
+from torchdata.stateful_dataloader import StatefulDataLoader
 
 
 class StreamingLibriSpeechDataset(IterableDataset):
@@ -20,18 +21,22 @@ class StreamingLibriSpeechDataset(IterableDataset):
         """
         if split == "validation.clean":
             self.dataset = load_dataset(
-                dataset_name, split=split, streaming=True, trust_remote_code=True
-            ).shuffle(buffer_size=10000)
+                dataset_name, split=split, trust_remote_code=True
+            )
         else:
             # For training, we don't shuffle
             self.dataset = load_dataset(
-                dataset_name, split=split, streaming=True, trust_remote_code=True
+                dataset_name, split=split, trust_remote_code=True
             )
         self.rank = rank
         self.world_size = world_size
-        self.processor = Wav2Vec2Processor.from_pretrained(
-            "facebook/wav2vec2-base-960h"
-        )
+        self.processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base")
+
+    def normalize_text(self, text: str) -> str:
+        # Basic LibriSpeech style normalization (could be extended)
+        text = text.lower()
+        # Keep letters, space and apostrophe
+        return "".join(ch for ch in text if ch.isalpha() or ch in " '")
 
     def preprocess(self, batch):
         """
@@ -47,7 +52,8 @@ class StreamingLibriSpeechDataset(IterableDataset):
         batch["input_values"] = self.processor(
             audio["array"], sampling_rate=audio["sampling_rate"]
         ).input_values[0]
-        batch["labels"] = self.processor.tokenizer(batch["text"]).input_ids
+        norm_text = self.normalize_text(batch["text"])
+        batch["labels"] = self.processor.tokenizer(norm_text).input_ids
         return batch
 
     def __iter__(self):
@@ -57,10 +63,11 @@ class StreamingLibriSpeechDataset(IterableDataset):
         Yields:
             Preprocessed samples from the dataset
         """
-        iterator = iter(self.dataset)
-        partitioned_iterator = islice(iterator, self.rank, None, self.world_size)
-        for item in partitioned_iterator:
-            yield self.preprocess(item)
+        while True:
+            iterator = iter(self.dataset)
+            partitioned_iterator = islice(iterator, self.rank, None, self.world_size)
+            for item in partitioned_iterator:
+                yield self.preprocess(item)
 
 
 def get_librispeech(
@@ -83,49 +90,47 @@ def get_librispeech(
     dataset = StreamingLibriSpeechDataset(
         "librispeech_asr", local_rank, world_size, split
     )
+    processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base")
 
     def collate_fn(features):
-        input_features = [
-            {"input_values": feature["input_values"]} for feature in features
-        ]
-        label_features = [{"input_ids": feature["labels"]} for feature in features]
-        batch = dataset.processor.pad(
+        input_features = [{"input_values": f["input_values"]} for f in features]
+        label_features = [{"input_ids": f["labels"]} for f in features]
+
+        batch = processor.pad(
             input_features,
             padding=True,
-            max_length=None,
-            pad_to_multiple_of=None,
+            pad_to_multiple_of=8,
             return_tensors="pt",
         )
-        with dataset.processor.as_target_processor():
-            labels_batch = dataset.processor.pad(
+        with processor.as_target_processor():
+            labels_batch = processor.pad(
                 label_features,
                 padding=True,
-                max_length=None,
-                pad_to_multiple_of=None,
+                pad_to_multiple_of=8,
                 return_tensors="pt",
             )
-
-        # replace padding with -100 to ignore loss correctly
         labels = labels_batch["input_ids"].masked_fill(
             labels_batch.attention_mask.ne(1), -100
         )
-
         batch["labels"] = labels
-
         return batch
 
-    train_loader = DataLoader(
+    train_loader = StatefulDataLoader(
         dataset,
         batch_size=per_device_train_batch_size,
         collate_fn=collate_fn,
+        num_workers=8,
+        pin_memory=True,
     )
 
     dataset = StreamingLibriSpeechDataset("librispeech_asr", 0, 1, "validation.clean")
 
-    val_loader = DataLoader(
+    val_loader = StatefulDataLoader(
         dataset,
         batch_size=per_device_train_batch_size,
         collate_fn=collate_fn,
+        num_workers=8,
+        pin_memory=True,
     )
 
     return train_loader, val_loader

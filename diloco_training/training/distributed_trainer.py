@@ -182,6 +182,20 @@ class DistributedTrainer:
         if not self.heterogeneous:
             for param in model.parameters():
                 dist.broadcast(param.data, src=0)
+        # torch.compile (must be before DDP wrapping)
+        if getattr(self.config, "compile_model", False):
+            try:
+                compile_backend = getattr(self.config, "compile_backend", "inductor")
+                compile_mode = getattr(self.config, "compile_mode", "default")
+                logger.info(
+                    f"Compiling model with torch.compile backend={compile_backend} mode={compile_mode}"
+                )
+                model = torch.compile(model, backend=compile_backend, mode=compile_mode)
+                logger.info("torch.compile succeeded")
+            except Exception as e:
+                logger.warning(
+                    f"torch.compile failed, continuing without compilation: {e}"
+                )
         if self.optim_method == "ddp":
             model = torch.nn.parallel.DistributedDataParallel(
                 model, device_ids=[self.local_rank] if self.device == "cuda" else None
@@ -280,8 +294,8 @@ class DistributedTrainer:
     def train(self):
         self.model.train()
         # Distribute total steps among workers if not in heterogeneous mode
-        if not self.heterogeneous:
-            self.total_steps = self.distribute_total_steps()
+        # if not self.heterogeneous:
+        #     self.total_steps = self.distribute_total_steps()
 
         logger.info(f"Gradient accumulation steps: {self.gradient_accumulation_steps}")
         logger.info(f"Worker {self.global_rank} will execute {self.total_steps} steps")
