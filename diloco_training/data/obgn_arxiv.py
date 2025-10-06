@@ -2,63 +2,104 @@ from ogb.nodeproppred import PygNodePropPredDataset
 from torch.utils.data.distributed import DistributedSampler
 from torch_geometric.loader import NeighborLoader
 from torch_geometric.transforms import ToUndirected
+from torch.utils.data import IterableDataset
+from torchdata.stateful_dataloader import StatefulDataLoader
+
+# Allow PyG Data object to be safely unpickled
+from torch_geometric.data import Data, HeteroData
+from torch.serialization import safe_globals
+from torch_geometric.data.data import DataEdgeAttr, DataTensorAttr
+from torch_geometric.data.storage import GlobalStorage
 
 
-def infinite_dataloader(dataloader):
-    """Wrap a dataloader to yield batches indefinitely."""
-    while True:
-        for batch in dataloader:
-            yield batch
+class OGBNArxivIterable(IterableDataset):
+    """
+    Iterable dataset that internally instantiates a NeighborLoader each epoch.
+    When repeat=True it loops forever (for continuous training).
+    """
+
+    def __init__(
+        self,
+        data,
+        input_nodes,
+        num_neighbors,
+        batch_size,
+        sampler=None,
+        num_workers=4,
+        repeat=True,
+    ):
+        self.data = data
+        self.input_nodes = input_nodes
+        self.num_neighbors = num_neighbors
+        self.batch_size = batch_size
+        self.sampler = sampler
+        self.num_workers = num_workers
+        self.repeat = repeat
+
+    def _make_loader(self):
+        return NeighborLoader(
+            self.data,
+            input_nodes=self.input_nodes,
+            num_neighbors=self.num_neighbors,
+            batch_size=self.batch_size,
+            shuffle=False,  # Shuffling handled by DistributedSampler if desired
+            sampler=self.sampler,
+            num_workers=self.num_workers,
+        )
+
+    def __iter__(self):
+        while True:
+            loader = self._make_loader()
+            for batch in loader:
+                yield {"data": batch}
+            if not self.repeat:
+                break
 
 
 def get_ogbn_arxiv(world_size, local_rank, per_device_train_batch_size, split="train"):
-    """Loads ogbn-arxiv dataset for GCN training."""
-    # Load and preprocess data
-    dataset = PygNodePropPredDataset(
-        name="ogbn-arxiv", transform=ToUndirected(), root="/workspace/datasets/obgn"
-    )
+    """Loads ogbn-arxiv dataset returning StatefulDataLoader for train & val."""
+    with safe_globals([Data, HeteroData, DataEdgeAttr, DataTensorAttr, GlobalStorage]):
+        dataset = PygNodePropPredDataset(
+            name="ogbn-arxiv", transform=ToUndirected(), root="/workspace/datasets/obgn"
+        )
     data = dataset[0]
 
     # Normalize features
     data.x = (data.x - data.x.mean(dim=0)) / data.x.std(dim=0)
 
     split_idx = dataset.get_idx_split()
-    input_nodes = split_idx["train"]
-    # Distributed sampler
+    train_idx = split_idx["train"]
+
+    # Distributed sampler for node indices (affects NeighborLoader sampling order)
     train_sampler = DistributedSampler(
-        input_nodes, num_replicas=world_size, rank=local_rank, shuffle=True
+        train_idx, num_replicas=world_size, rank=local_rank, shuffle=True
     )
 
-    # NeighborLoader for mini-batch training
-    train_loader = NeighborLoader(
-        data,
-        input_nodes=input_nodes,
+    # Training iterable (infinite / repeat)
+    train_dataset = OGBNArxivIterable(
+        data=data,
+        input_nodes=train_idx,
         num_neighbors=[15, 10],
-        batch_size=2048,
-        shuffle=False,
+        batch_size=per_device_train_batch_size,
         sampler=train_sampler,
         num_workers=4,
+        repeat=True,
     )
 
-    val_loader = NeighborLoader(
-        data,
+    # Validation iterable (single pass)
+    val_dataset = OGBNArxivIterable(
+        data=data,
         input_nodes=split_idx["valid"],
         num_neighbors=[15, 10],
-        batch_size=2048,
-        shuffle=False,
+        batch_size=per_device_train_batch_size,
+        sampler=None,
         num_workers=2,
+        repeat=False,
     )
 
-    # Wrap the train loader to loop indefinitely
-    train_loader = infinite_dataloader(train_loader)
-
-    # Wrap the batch in a dictionary with key 'data'
-    def wrap_batch(batch):
-        return {"data": batch}
-
-    # Apply the wrapper to each batch
-    train_loader = map(wrap_batch, train_loader)
-    val_loader = map(wrap_batch, val_loader)
+    # StatefulDataLoader: batch_size=None -> yield elements as produced (already dicts)
+    train_loader = StatefulDataLoader(train_dataset, batch_size=None)
+    val_loader = StatefulDataLoader(val_dataset, batch_size=None)
 
     return train_loader, val_loader
 
@@ -66,14 +107,22 @@ def get_ogbn_arxiv(world_size, local_rank, per_device_train_batch_size, split="t
 if __name__ == "__main__":
     world_size = 1
     local_rank = 0
-    per_device_train_batch_size = 32
+    per_device_train_batch_size = 2048
 
     train_loader, val_loader = get_ogbn_arxiv(
         world_size, local_rank, per_device_train_batch_size
     )
 
-    # print the first 3 batches
-    for batch, i in zip(train_loader, range(3)):
+    # print first 3 training batches
+    for i, batch in zip(range(3), train_loader):
+        b = batch["data"]
         print(
-            f"Batch {i+1}: {batch['data'].x.shape}, {batch['data'].y.shape}, {batch['data'].batch_size}"
+            f"Train Batch {i+1}: x={b.x.shape}, y={b.y.shape}, batch_size={b.batch_size}"
+        )
+
+    # print first 2 validation batches
+    for i, batch in zip(range(2), val_loader):
+        b = batch["data"]
+        print(
+            f"Val Batch {i+1}: x={b.x.shape}, y={b.y.shape}, batch_size={b.batch_size}"
         )

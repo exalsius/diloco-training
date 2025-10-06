@@ -1,6 +1,6 @@
 # Model and Dataset Configuration
-model: "resnet50"
-dataset: "imagenet"
+model: "gcn"
+dataset: "ogbn_arxiv"
 
 # Training Hyperparameters
 local_steps: 128
@@ -17,7 +17,7 @@ batch_size: 512
 optim_method: "sgd"
 
 # Checkpoint Configuration
-checkpoint_path: "wav2vec2_imagenet_checkpoint.pth"
+checkpoint_path: "gcn_obgn_checkpoint.pth"
 checkpoint_interval: 5
 
 # Device Configuration
@@ -25,8 +25,8 @@ device: "cuda"
 
 # WandB Configuration
 wandb_project_name: "test"
-wandb_group: "4nodes-heterogeneous-scratch"
-wandb_run_id: "wav2vec30"
+wandb_group: "2nodes-homogeneous"
+wandb_run_id: "gcn1"
 
 # Advanced Features
 heterogeneous: true
@@ -34,10 +34,10 @@ compression_decay: 0.95
 compression_topk: 32
 
 # Experiment Metadata
-experiment_description: "Wav2Vec2 training on LibriSpeech using DiLoCo distributed training"
+experiment_description: "GCN training on LibriSpeech using DiLoCo distributed training"
 experiment_tags:
-  - "wav2vec2"
-  - "librispeech"
+  - "gcn"
+  - "ogbn_arxiv"
   - "diloco"
   - "distributed"
   - "heterogeneous"
@@ -46,6 +46,6 @@ seed: 42
 wandb_logging: true
 
 # torch.compile settings
-compile_model: false
+compile_model: true
 compile_backend: "inductor"
 compile_mode: "default"
