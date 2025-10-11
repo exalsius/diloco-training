@@ -4,7 +4,7 @@ import time
 import torch
 import torch.distributed as dist
 
-from diloco_training.training.training_config import TrainingConfig
+from diloco_training.training_training_config import TrainingConfig
 
 
 def profile_gpu(
@@ -12,23 +12,23 @@ def profile_gpu(
     local_rank: int,
     global_rank: int,
     world_size: int,
-    max_batch_size: int = 512,
     n_trials: int = 10,
 ):
     """Profile GPU performance to find optimal batch size."""
     from diloco_training.training.distributed_trainer import DistributedTrainer
 
-    device_batch_size = 16
+    min_batch_size = config.min_batch_size
+    max_batch_size = config.max_batch_size
     found = 1
     avg_time = None
 
-    while device_batch_size <= max_batch_size:
+    while min_batch_size <= max_batch_size:
         try:
             # Create a copy of config with profiling parameters
             profiling_config = config.model_copy(
                 update={
                     "local_steps": n_trials // 5,
-                    "per_device_train_batch_size": device_batch_size,
+                    "per_device_train_batch_size": min_batch_size,
                     "total_steps": n_trials,
                     "checkpoint_path": "/tmp/dummy.pth",
                     "checkpoint_interval": 1000,
@@ -44,8 +44,8 @@ def profile_gpu(
             trainer.train()
             elapsed = time.time() - start
             avg_time = elapsed / n_trials
-            found = device_batch_size
-            device_batch_size *= 2
+            found = min_batch_size
+            min_batch_size *= 2
 
             with torch.no_grad():
                 torch.cuda.empty_cache()
@@ -96,14 +96,12 @@ def synchronize_batch_and_steps(
     total_speed = sum(speeds)
 
     # Distribute total work proportionally based on speed
-    # Each worker gets a portion of the total_steps based on its relative speed
-    # The sum of all worker steps should equal the original total_steps
     total_steps_list = []
     for speed in speeds:
         steps = int(round(config.total_steps * speed / total_speed))
         total_steps_list.append(steps)
 
-    # Group GPUs within 5% of each other's time_per_batch and assign max values in group
+    # Group GPUs within the specified percentage variance and assign max values in group
     groups = []
     for i, info in enumerate(all_info):
         if info is None or "time_per_batch" not in info:
@@ -116,7 +114,7 @@ def synchronize_batch_and_steps(
             and "time_per_batch" in other
             and abs(other["time_per_batch"] - info["time_per_batch"])
             / info["time_per_batch"]
-            <= 0.15
+            <= config.group_perc_variance
         ]
         if group not in groups:
             groups.append(group)
@@ -158,7 +156,7 @@ def synchronize_batch_and_steps(
             and "time_per_batch" in other
             and abs(other["time_per_batch"] - info["time_per_batch"])
             / info["time_per_batch"]
-            <= 0.15
+            <= config.group_perc_variance
         ]
         group_local_steps = max(local_steps_list[j] for j in group)
         # Ensure total_steps is a multiple of local_steps and uses consistent multiplier
