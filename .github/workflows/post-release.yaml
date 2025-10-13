@@ -9,7 +9,7 @@ env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
 jobs:
   docker:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Free up disk space
         run: |
