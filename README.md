@@ -20,6 +20,7 @@ This work explores how to train effectively across **heterogeneous, geographical
 
 ## Highlights
 - Extends the original **DiLoCo** implementation with **additional optimizers** and **momentum compression techniques**
+- Supports training across **heterogeneous GPUs** with varying compute capabilities and memory configurations
 - Integrates seamlessly into the **[exalsius framework](https://github.com/exalsius)** for cross-cluster and cross-cloud scheduling
 - Reduces communication cost by combining **infrequent synchronization** with **frequency-based momentum decomposition**
 - Supports transformer-based and CNN architectures for NLP and vision workloads
