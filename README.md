@@ -72,28 +72,6 @@ This enables scalable, communication-efficient training beyond the boundaries of
 
 For more details on the exalsius platform, visit the [exalsius documentation](https://docs.exalsius.ai).
 
-
-
-## Prerequisites
-
-Before getting started, ensure you have the following installed:
-
-- **Python 3.12**: Required for running the application and dependencies.
-- **uv**: Dependency management and packaging tool.
-
-To maintain code quality and enforce consistent style, we suggest to use a pre-commit hook. Follow these steps to set it up:
-
-1. Install the pre-commit hook:
-
-   ```bash
-   pre-commit install
-   ```
-
-2. Run the hooks manually on all files (optional):
-   ```bash
-   pre-commit run --all-files
-   ```
-
 ---
 
 ## Development
