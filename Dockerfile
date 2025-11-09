@@ -37,8 +37,7 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 RUN /app/.venv/bin/python -m ensurepip --upgrade || true \
  && /app/.venv/bin/python -m pip install --upgrade pip wheel setuptools ninja packaging
 
-RUN --mount=type=cache,target=/root/.cache/pip \
-    /app/.venv/bin/python -m pip install --no-build-isolation --verbose flash-attn
+RUN /app/.venv/bin/python -m pip install --no-build-isolation --verbose flash-attn
 
 RUN /app/.venv/bin/python -c "import flash_attn, torch; print('flash_attn', flash_attn.__version__, ' torch', torch.__version__)"
 
