@@ -196,6 +196,24 @@ def load_config_from_args() -> TrainingConfig:
         "--heterogeneous", action="store_true", help="Enable heterogeneous profiling."
     )
     parser.add_argument(
+        "--min_batch_size",
+        type=int,
+        default=16,
+        help="Minimum batch size for GPU profiling during heterogeneous training.",
+    )
+    parser.add_argument(
+        "--max_batch_size",
+        type=int,
+        default=512,
+        help="Maximum batch size limit for GPU profiling during heterogeneous training.",
+    )
+    parser.add_argument(
+        "--group_perc_variance",
+        type=float,
+        default=0.15,
+        help="Percentage variance threshold for grouping GPUs in heterogeneous training.",
+    )
+    parser.add_argument(
         "--compression_decay", type=float, default=0.9, help="Compression decay."
     )
     parser.add_argument(
