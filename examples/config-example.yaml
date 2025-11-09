@@ -1,0 +1,186 @@
+# ============================================================================
+# DiLoCo Training - Complete Configuration Example
+# ============================================================================
+# This file contains all 31 available configuration parameters for DiLoCo training.
+# Each parameter includes its description, type, and default value.
+#
+# Usage:
+#   python diloco_training/training/start_training.py --config config-example.yaml
+#
+# Note: You can also set these via environment variables with DILOCO_ prefix
+# (e.g., DILOCO_MODEL=gpt-neo-x)
+# ============================================================================
+
+# ============================================================================
+# Model and Dataset Configuration
+# ============================================================================
+
+# Model name to use for training (must be in MODEL_REGISTRY)
+# Type: str | Default: "gpt-neo-x"
+model: "gpt-neo-x"
+
+# Dataset name to use for training (must be in DATASET_REGISTRY)
+# Type: str | Default: "c4"
+dataset: "c4"
+
+# ============================================================================
+# Training Hyperparameters
+# ============================================================================
+
+# Number of local optimization steps before synchronization
+# Type: int | Default: 500 | Constraints: >= 1
+local_steps: 500
+
+# Learning rate for inner optimizer
+# Type: float | Default: 1e-4 | Constraints: > 0
+lr: 0.0001
+
+# Learning rate for outer optimizer (DiLoCo synchronization)
+# Type: float | Default: 1e-3 | Constraints: > 0
+outer_lr: 0.001
+
+# Number of warmup steps for learning rate scheduler
+# Type: int | Default: 50 | Constraints: >= 0
+warmup_steps: 50
+
+# Total number of training steps across all workers
+# Type: int | Default: 88000 | Constraints: >= 1
+total_steps: 88000
+
+# ============================================================================
+# Batch Size Configuration
+# ============================================================================
+
+# Batch size per device (per GPU/CPU)
+# Type: int | Default: 32 | Constraints: >= 1
+per_device_train_batch_size: 32
+
+# Total batch size across all devices
+# Type: int | Default: 512 | Constraints: >= 1
+batch_size: 512
+
+# ============================================================================
+# Optimization and Training Method
+# ============================================================================
+
+# Optimization method to use
+# Type: str | Default: "sgd" | Choices: ["demo", "sgd", "ddp"]
+optim_method: "sgd"
+
+# Enable model quantization for reduced memory usage
+# Type: bool | Default: false
+quantization: false
+
+# Enable asynchronous communication for gradient synchronization
+# Type: bool | Default: false
+async_communication: false
+
+# ============================================================================
+# Checkpoint Configuration
+# ============================================================================
+
+# Path to save/load training checkpoints
+# Type: str | Default: "checkpoint.pth"
+checkpoint_path: "checkpoint.pth"
+
+# Number of steps between checkpoint saves
+# Type: int | Default: 512 | Constraints: >= 1
+checkpoint_interval: 512
+
+# ============================================================================
+# Device Configuration
+# ============================================================================
+
+# Device to use for training
+# Type: str | Default: "cuda" | Choices: ["cuda", "cpu"]
+device: "cuda"
+
+# ============================================================================
+# WandB Logging Configuration
+# ============================================================================
+
+# Weights & Biases project name for experiment tracking
+# Type: str | Default: "diloco_training"
+wandb_project_name: "diloco_training"
+
+# Specific run ID for resuming WandB runs (optional)
+# Type: str | Default: null
+wandb_run_id: null
+
+# WandB group name for organizing related runs
+# Type: str | Default: null
+wandb_group: null
+
+# Enable or disable WandB logging
+# Type: bool | Default: true
+wandb_logging: true
+
+# ============================================================================
+# Advanced Features
+# ============================================================================
+
+# Enable heterogeneous profiling to automatically adjust parameters
+# for devices with different compute capabilities
+# Type: bool | Default: false
+heterogeneous: false
+
+# Minimum batch size for GPU profiling during heterogeneous training
+# The profiler starts at this batch size and doubles until max_batch_size or OOM
+# Type: int | Default: 16 | Constraints: >= 1
+min_batch_size: 16
+
+# Maximum batch size limit for GPU profiling during heterogeneous training
+# The profiler will not exceed this batch size to prevent excessive memory usage
+# Type: int | Default: 512 | Constraints: >= min_batch_size
+max_batch_size: 512
+
+# Percentage variance threshold for grouping GPUs in heterogeneous training
+# GPUs with time_per_batch within this threshold are grouped together
+# Example: 0.15 means GPUs within 15% of each other's performance are grouped
+# Type: float | Default: 0.15 | Constraints: 0 < x <= 1
+group_perc_variance: 0.15
+
+# Compression decay factor for gradient compression
+# Type: float | Default: 0.9 | Constraints: 0 <= x <= 1
+compression_decay: 0.9
+
+# Top-k value for gradient compression (number of gradients to keep)
+# Type: int | Default: 32 | Constraints: >= 1
+compression_topk: 32
+
+# ============================================================================
+# Experiment Metadata
+# ============================================================================
+
+# Human-readable description of the experiment
+# Type: str | Default: "DiLoCo distributed training experiment"
+experiment_description: "DiLoCo distributed training experiment"
+
+# List of tags for categorizing the experiment
+# Type: list[str] | Default: []
+experiment_tags:
+  - "diloco"
+  - "distributed"
+
+# Random seed for reproducibility
+# Type: int | Default: 42
+seed: 42
+
+# ============================================================================
+# torch.compile Settings
+# ============================================================================
+
+# Enable torch.compile for potential performance improvements
+# Type: bool | Default: false
+compile_model: false
+
+# Backend to use for torch.compile
+# Type: str | Default: "inductor"
+# Common options: "inductor", "aot_eager", "cudagraphs"
+compile_backend: "inductor"
+
+# Compilation mode for torch.compile
+# Type: str | Default: "default"
+# Options: "default", "reduce-overhead", "max-autotune"
+compile_mode: "default"
+
