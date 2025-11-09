@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from typing import List, Literal, Optional
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 from diloco_training.data import DATASET_REGISTRY
@@ -66,6 +66,22 @@ class TrainingConfig(BaseSettings):
     # Advanced features
     heterogeneous: bool = Field(
         default=False, description="Enable heterogeneous profiling"
+    )
+    min_batch_size: int = Field(
+        default=16,
+        ge=1,
+        description="Minimum batch size for GPU profiling during heterogeneous training",
+    )
+    max_batch_size: int = Field(
+        default=512,
+        ge=1,
+        description="Maximum batch size limit for GPU profiling during heterogeneous training",
+    )
+    group_perc_variance: float = Field(
+        default=0.15,
+        gt=0,
+        le=1,
+        description="Percentage variance threshold for grouping GPUs in heterogeneous training (0.15 = 15%)",
     )
     compression_decay: float = Field(
         default=0.9, ge=0, le=1, description="Compression decay"
@@ -133,6 +149,15 @@ class TrainingConfig(BaseSettings):
             valid_datasets = ", ".join(DATASET_REGISTRY.keys())
             raise ValueError(f"Invalid dataset: {v}. Must be one of: {valid_datasets}")
         return v
+
+    @model_validator(mode="after")
+    def validate_batch_sizes(self):
+        """Validate that max_batch_size >= min_batch_size."""
+        if self.max_batch_size < self.min_batch_size:
+            raise ValueError(
+                f"max_batch_size ({self.max_batch_size}) must be >= min_batch_size ({self.min_batch_size})"
+            )
+        return self
 
     @classmethod
     def from_config_file(cls, config_path: Path) -> "TrainingConfig":

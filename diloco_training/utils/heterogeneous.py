@@ -12,17 +12,16 @@ def profile_gpu(
     local_rank: int,
     global_rank: int,
     world_size: int,
-    max_batch_size: int = 512,
     n_trials: int = 10,
 ):
     """Profile GPU performance to find optimal batch size."""
     from diloco_training.training.distributed_trainer import DistributedTrainer
 
-    device_batch_size = 16
+    device_batch_size = config.min_batch_size
     found = 1
     avg_time = None
 
-    while device_batch_size <= max_batch_size:
+    while device_batch_size <= config.max_batch_size:
         try:
             # Create a copy of config with profiling parameters
             profiling_config = config.model_copy(
@@ -103,7 +102,7 @@ def synchronize_batch_and_steps(
         steps = int(round(config.total_steps * speed / total_speed))
         total_steps_list.append(steps)
 
-    # Group GPUs within 5% of each other's time_per_batch and assign max values in group
+    # Group GPUs within the configured percentage variance of each other's time_per_batch
     groups = []
     for i, info in enumerate(all_info):
         if info is None or "time_per_batch" not in info:
@@ -116,7 +115,7 @@ def synchronize_batch_and_steps(
             and "time_per_batch" in other
             and abs(other["time_per_batch"] - info["time_per_batch"])
             / info["time_per_batch"]
-            <= 0.15
+            <= config.group_perc_variance
         ]
         if group not in groups:
             groups.append(group)
@@ -158,7 +157,7 @@ def synchronize_batch_and_steps(
             and "time_per_batch" in other
             and abs(other["time_per_batch"] - info["time_per_batch"])
             / info["time_per_batch"]
-            <= 0.15
+            <= config.group_perc_variance
         ]
         group_local_steps = max(local_steps_list[j] for j in group)
         # Ensure total_steps is a multiple of local_steps and uses consistent multiplier
