@@ -53,6 +53,14 @@ class TrainingConfig(BaseSettings):
         default=512, ge=1, description="Checkpoint interval"
     )
 
+    # Hugging Face upload configuration
+    hf_upload: bool = Field(
+        default=False, description="Upload model to Hugging Face Hub"
+    )
+    trained_model_hf_name: Optional[str] = Field(
+        default=None, description="Hugging Face Hub model name for upload"
+    )
+
     # Device configuration
     device: Literal["cuda", "cpu"] = Field(default="cuda", description="Device to use")
 

@@ -1,13 +1,13 @@
 # Model and Dataset Configuration
-model: "gcn"
-dataset: "ogbn_arxiv"
+model: "gpt-neo-x"
+dataset: "c4"
 
 # Training Hyperparameters
 local_steps: 128
 lr: 3e-4
 outer_lr: 0.7
 warmup_steps: 500
-total_steps: 40000
+total_steps: 5
 
 # Batch Size Configuration
 per_device_train_batch_size: 64
@@ -17,7 +17,7 @@ batch_size: 512
 optim_method: "sgd"
 
 # Checkpoint Configuration
-checkpoint_path: "gcn_obgn_checkpoint.pth"
+checkpoint_path: "gpt_neo_x_c4_checkpoint.pth"
 checkpoint_interval: 5
 
 # Device Configuration
@@ -26,7 +26,7 @@ device: "cuda"
 # WandB Configuration
 wandb_project_name: "test"
 wandb_group: "2nodes-homogeneous"
-wandb_run_id: "gcn1"
+wandb_run_id: "gpt_neo_x_c4"
 
 # Advanced Features
 heterogeneous: true
@@ -34,10 +34,10 @@ compression_decay: 0.95
 compression_topk: 32
 
 # Experiment Metadata
-experiment_description: "GCN training on LibriSpeech using DiLoCo distributed training"
+experiment_description: "GPT-Neo-X training on C4 using DiLoCo distributed training"
 experiment_tags:
-  - "gcn"
-  - "ogbn_arxiv"
+  - "gpt_neo_x"
+  - "c4"
   - "diloco"
   - "distributed"
   - "heterogeneous"
@@ -49,3 +49,7 @@ wandb_logging: true
 compile_model: true
 compile_backend: "inductor"
 compile_mode: "default"
+
+# Hugging Face Upload Configuration
+hf_upload: true
+trained_model_hf_name: 'exalsius/test_model_name'  # Set to "your-username/your-model-name" to enable upload

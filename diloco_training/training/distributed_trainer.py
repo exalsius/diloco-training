@@ -390,7 +390,7 @@ class DistributedTrainer:
                         self.per_device_train_batch_size,
                         self.args,
                     )
-                    self.save_checkpoint(step, real_step)
+                    self.save_checkpoint(step, real_step, is_final_step=True)
                 return
             step += 1
 
@@ -635,7 +635,7 @@ class DistributedTrainer:
                         self.args,
                         self.config.wandb_logging,
                     )
-                    self.save_checkpoint(step, real_step)
+                    self.save_checkpoint(step, real_step, is_final_step=True)
 
                 # Log final timing summary
                 self.metrics_logger.log_timing_summary(real_step)
@@ -935,7 +935,7 @@ class DistributedTrainer:
                         self.per_device_train_batch_size,
                         self.args,
                     )
-                    self.save_checkpoint(step, real_step)
+                    self.save_checkpoint(step, real_step, is_final_step=True)
 
                 # Log final timing summary
                 self.metrics_logger.log_timing_summary(real_step)
@@ -1043,7 +1043,7 @@ class DistributedTrainer:
         self.total_bytes_sent += bytes_sent
         self.sync_count += 1
 
-    def save_checkpoint(self, step, real_step):
+    def save_checkpoint(self, step, real_step, is_final_step=False):
         try:
             loader_state = self.train_dataloader.state_dict()
         except Exception as e:
@@ -1094,9 +1094,121 @@ class DistributedTrainer:
             f"Checkpoint saved for global rank {self.global_rank} and local rank {self.local_rank}, optim method {self.optim_method}"
         )
 
+        # Upload model to Hugging Face Hub if configured and this is the final step
+        if (
+            is_final_step
+            and self.config.hf_upload
+            and self.config.trained_model_hf_name
+        ):
+            # Only upload from global_rank 0 to avoid duplicate uploads
+            if self.global_rank == 0:
+                self._upload_to_huggingface(step, real_step)
+            else:
+                logger.info(
+                    f"Skipping HF upload for non-zero global rank {self.global_rank}"
+                )
+
+    def _upload_to_huggingface(self, step, real_step):
+        """
+        Upload checkpoint to HuggingFace Hub.
+        Requires HF_TOKEN environment variable.
+        """
+        hf_token = os.environ.get("HUGGINGFACE_TOKEN")
+        if not hf_token:
+            logger.warning(
+                "No HUGGINGFACE_TOKEN found in environment. Skipping HuggingFace upload."
+            )
+            return
+
+        try:
+            from huggingface_hub import HfApi, create_repo
+
+            # Determine repository ID
+            repo_id = self.config.trained_model_hf_name
+            if not repo_id:
+                logger.warning("No trained_model_hf_name configured. Skipping upload.")
+                return
+
+            logger.info(f"Uploading checkpoint to HuggingFace: {repo_id}")
+
+            # Create repository if it doesn't exist
+            api = HfApi()
+            try:
+                create_repo(
+                    repo_id,
+                    token=hf_token,
+                    exist_ok=True,
+                    private=False,
+                    repo_type="model",
+                )
+                logger.info(f"Repository ready: {repo_id}")
+            except Exception as e:
+                logger.info(f"Repository check: {e}")
+
+            # Prepare checkpoint file path
+            checkpoint_file = f"{str(self.checkpoint_path).split('.')[0]}.pth_node_{self.global_rank}_rank_{self.local_rank}_optim_{self.optim_method}.pth"
+
+            if not os.path.exists(checkpoint_file):
+                logger.error(f"Checkpoint file not found: {checkpoint_file}")
+                return
+
+            # Upload the checkpoint file
+            api.upload_file(
+                path_or_fileobj=checkpoint_file,
+                path_in_repo=f"checkpoint_step_{step:06d}_rank_{self.global_rank}.pth",
+                repo_id=repo_id,
+                token=hf_token,
+                commit_message=f"Training checkpoint at step {step} (real step {real_step})",
+            )
+
+            # Create and upload a metadata file
+            import json
+
+            metadata = {
+                "model": self.model_name,
+                "dataset": self.dataset,
+                "training_step": step,
+                "real_step": real_step,
+                "optimization_method": self.optim_method,
+                "learning_rate": self.lr,
+                "outer_learning_rate": self.outer_lr,
+                "local_steps": self.local_steps,
+                "world_size": self.world_size,
+                "global_rank": self.global_rank,
+                "local_rank": self.local_rank,
+            }
+
+            metadata_file = (
+                f"{str(self.checkpoint_path).split('.')[0]}_meta_{step:06d}.json"
+            )
+            with open(metadata_file, "w") as f:
+                json.dump(metadata, f, indent=2)
+
+            api.upload_file(
+                path_or_fileobj=metadata_file,
+                path_in_repo=f"meta_step_{step:06d}_rank_{self.global_rank}.json",
+                repo_id=repo_id,
+                token=hf_token,
+            )
+
+            # Clean up local metadata file
+            if os.path.exists(metadata_file):
+                os.remove(metadata_file)
+
+            logger.info(f"Successfully uploaded checkpoint to HuggingFace: {repo_id}")
+
+        except ImportError:
+            logger.error(
+                "huggingface_hub not installed. Install with: pip install huggingface_hub"
+            )
+        except Exception as e:
+            logger.error(f"Failed to upload to HuggingFace: {e}")
+            import traceback
+
+            logger.error(traceback.format_exc())
+
     def load_checkpoint(self):
         checkpoint_file = f"{str(self.checkpoint_path).split('.')[0]}.pth_node_{self.global_rank}_rank_{self.local_rank}_optim_{self.optim_method}.pth"
-        print(checkpoint_file)
         if os.path.isfile(checkpoint_file):
             checkpoint = torch.load(checkpoint_file)
             self.model.load_state_dict(checkpoint["model_state_dict"])
@@ -1109,7 +1221,7 @@ class DistributedTrainer:
                     checkpoint["inner_optimizer_d_state_dict"]
                 )
                 self.scheduler_g.load_state_dict(checkpoint["scheduler_g_state_dict"])
-                self.scheduler_d.load_state_dict(checkpoint["scheduler_d_state_dict"])
+                self.scheduler_d.load_state_dict(checkpoint["scheduler_d.state_dict"])
                 if self.optim_method != "ddp":
                     self.outer_optimizer_g.load_state_dict(
                         checkpoint["outer_optimizer_g_state_dict"]
