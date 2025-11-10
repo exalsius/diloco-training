@@ -256,6 +256,16 @@ def load_config_from_args() -> TrainingConfig:
         default="default",
         help="torch.compile mode (default, reduce-overhead, max-autotune).",
     )
+    # Hugging Face upload options
+    parser.add_argument(
+        "--hf_upload", action="store_true", help="Upload model to Hugging Face Hub."
+    )
+    parser.add_argument(
+        "--trained_model_hf_name",
+        type=str,
+        default=None,
+        help="Hugging Face Hub model name for upload.",
+    )
 
     args = parser.parse_args()
 
