@@ -94,6 +94,28 @@ checkpoint_interval: 512
 device: "cuda"
 
 # ============================================================================
+# Dataset Storage Configuration
+# ============================================================================
+
+# Directory for caching datasets
+# If not specified (null), uses HuggingFace's default cache directory:
+# ~/.cache/huggingface/datasets
+# Type: str | Default: null
+# Example: "/workspace/datasets" or "./data/cache"
+dataset_cache_dir: null
+
+# ============================================================================
+# Model Storage Configuration
+# ============================================================================
+
+# Directory for caching models
+# If not specified (null), uses HuggingFace's default cache directory:
+# ~/.cache/huggingface/hub
+# Type: str | Default: null
+# Example: "/workspace/models" or "./data/model_cache"
+model_cache_dir: null
+
+# ============================================================================
 # WandB Logging Configuration
 # ============================================================================
 

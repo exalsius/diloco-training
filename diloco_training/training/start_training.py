@@ -185,6 +185,18 @@ def load_config_from_args() -> TrainingConfig:
         "--device", type=str, default="cuda", choices=["cuda", "cpu"], help="Device."
     )
     parser.add_argument(
+        "--dataset_cache_dir",
+        type=str,
+        default=None,
+        help="Directory for caching datasets. If not specified, uses HuggingFace default.",
+    )
+    parser.add_argument(
+        "--model_cache_dir",
+        type=str,
+        default=None,
+        help="Directory for caching models. If not specified, uses HuggingFace default.",
+    )
+    parser.add_argument(
         "--wandb_project_name",
         type=str,
         default="diloco_training",

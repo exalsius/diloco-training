@@ -1,3 +1,6 @@
+from pathlib import Path
+from typing import Optional
+
 import torch
 from pytorch_pretrained_biggan import one_hot_from_int, truncated_noise_sample
 from torch.utils.data import DataLoader, Dataset
@@ -23,9 +26,27 @@ class BigGANDataset(Dataset):
         return {"noise": noise, "class_vector": class_vector, "real_image": real_images}
 
 
-def get_tencent_ml(world_size, local_rank, per_device_train_batch_size, split="train"):
-    """Loads Tencent ML Images dataset for BigGAN training"""
+def get_tencent_ml(
+    world_size,
+    local_rank,
+    per_device_train_batch_size,
+    split="train",
+    cache_dir: Optional[Path] = None,
+):
+    """
+    Loads Tencent ML Images dataset for BigGAN training.
 
+    Args:
+        world_size: Number of processes in distributed training
+        local_rank: Rank of current process
+        per_device_train_batch_size: Batch size per device
+        split: Dataset split to use
+        cache_dir: Directory for caching datasets (not used for synthetic data)
+
+    Returns:
+        Tuple of dataset and dataloader
+    """
+    # Note: cache_dir is not used as this is a synthetic dataset
     dataset = BigGANDataset(num_samples=1000)
     sampler = DistributedSampler(dataset, num_replicas=world_size, rank=local_rank)
     dataloader = DataLoader(

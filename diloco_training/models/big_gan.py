@@ -1,6 +1,7 @@
 # train_biggan_deep_imagenet.py
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 import torch
@@ -212,8 +213,24 @@ class BigGANWithLoss(nn.Module):
             return BigGANOutput(loss=g_loss, g_loss=g_loss, logits=d_fake_for_gen)
 
 
-def get_biggan(z_dim: int = 128, class_dim: int = 1000, ch: int = 96):
-    """Factory function to create a BigGAN model compatible with DiLoCo framework."""
+def get_biggan(
+    z_dim: int = 128,
+    class_dim: int = 1000,
+    ch: int = 96,
+    cache_dir: Optional[Path] = None,
+):
+    """
+    Factory function to create a BigGAN model compatible with DiLoCo framework.
+
+    Args:
+        z_dim: Dimension of latent noise vector
+        class_dim: Number of classes for conditional generation
+        ch: Base channel multiplier
+        cache_dir: Directory for caching models (not used, provided for API consistency)
+
+    Returns:
+        Tuple of (None, BigGANWithLoss model)
+    """
     model = BigGANWithLoss(z_dim=z_dim, class_dim=class_dim, ch=ch)
     return None, model
 

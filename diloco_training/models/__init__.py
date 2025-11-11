@@ -10,8 +10,8 @@ from .wav2vec2 import get_wav2vec2
 # from .ppo import get_ppo
 
 MODEL_REGISTRY: Dict[str, Callable] = {
-    "resnet50": lambda: get_resnet("resnet50"),
-    "resnet101": lambda: get_resnet("resnet101"),
+    "resnet50": lambda cache_dir=None: get_resnet("resnet50", cache_dir=cache_dir),
+    "resnet101": lambda cache_dir=None: get_resnet("resnet101", cache_dir=cache_dir),
     "wav2vec2": get_wav2vec2,
     "gpt-neo": get_gpt_neo,
     "gpt-neo-x": get_gpt_neo_x,

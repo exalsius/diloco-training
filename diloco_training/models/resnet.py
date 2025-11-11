@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from enum import Enum, auto
+from pathlib import Path
 from typing import Optional, Union
 
 import torch
@@ -95,7 +96,10 @@ class ResNetWithLoss(nn.Module):
 
 
 def get_resnet(
-    model_type: str = "resnet50", num_classes: int = 1000, pretrained: bool = False
+    model_type: str = "resnet50",
+    num_classes: int = 1000,
+    pretrained: bool = False,
+    cache_dir: Optional[Path] = None,
 ):
     """Factory function to create a ResNet model with loss calculation interface.
 
@@ -103,12 +107,17 @@ def get_resnet(
         model_type: Type of ResNet model ("resnet50" or "resnet101")
         num_classes: Number of output classes
         pretrained: Whether to use pretrained weights
+        cache_dir: Directory for caching models (not used for torchvision models)
 
     Returns:
         Configured ResNet model
 
     Raises:
         ValueError: If model_type is not supported
+
+    Note:
+        The cache_dir parameter is provided for API consistency with other model loaders,
+        but is not used as torchvision uses TORCH_HOME environment variable for caching.
     """
     # Map string model type to enum
     if model_type == "resnet50":

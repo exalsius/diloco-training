@@ -177,7 +177,7 @@ class DistributedTrainer:
             self.heterogeneous = False
 
     def initialize_model(self, model_class):
-        config, model = model_class()
+        config, model = model_class(cache_dir=self.config.model_cache_dir)
         model = model.to(self.device)
         if not self.heterogeneous:
             for param in model.parameters():
@@ -216,6 +216,7 @@ class DistributedTrainer:
                 self.global_rank,
                 self.args.per_device_train_batch_size,
                 split="train",
+                cache_dir=self.config.dataset_cache_dir,
             )
         return train_dataloader, val_dataloader
 

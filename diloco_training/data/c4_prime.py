@@ -5,6 +5,7 @@ Provides utilities for tokenization, batching, and distributed training setup.
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TypeVar
 
 from datasets import Dataset
@@ -59,18 +60,20 @@ class DatasetConfig:
 
 def create_tokenizer(
     config: DatasetConfig,
+    cache_dir: Optional[Path] = None,
 ) -> PreTrainedTokenizer | PreTrainedTokenizerFast:
     """
     Create and configure a tokenizer based on the provided configuration.
 
     Args:
         config: Dataset configuration object
+        cache_dir: Directory for caching tokenizer. If None, uses HuggingFace default
 
     Returns:
         Configured tokenizer
     """
     tokenizer = AutoTokenizer.from_pretrained(
-        config.model_name, use_fast=config.use_fast_tokenizer
+        config.model_name, use_fast=config.use_fast_tokenizer, cache_dir=cache_dir
     )
 
     # Ensure pad token is set for models that need it
@@ -81,7 +84,9 @@ def create_tokenizer(
 
 
 def load_and_process_dataset(
-    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast, config: DatasetConfig
+    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    config: DatasetConfig,
+    cache_dir: Optional[Path] = None,
 ) -> Dataset:
     """
     Load and tokenize the dataset.
@@ -89,6 +94,7 @@ def load_and_process_dataset(
     Args:
         tokenizer: The tokenizer to use for processing
         config: Dataset configuration object
+        cache_dir: Directory for caching datasets. If None, uses HuggingFace default
 
     Returns:
         Tokenized dataset
@@ -100,6 +106,7 @@ def load_and_process_dataset(
             verification_mode=VerificationMode.NO_CHECKS,
             split=config.split,
             trust_remote_code=True,
+            cache_dir=cache_dir,
         )
     except Exception as e:
         logger.error(f"Failed to load dataset: {e}")
@@ -132,6 +139,7 @@ def get_c4_pile_prime(
     per_device_train_batch_size: int,
     split: str = "train",
     config: Optional[DatasetConfig] = None,
+    cache_dir: Optional[Path] = None,
 ) -> Tuple[HFDataset, DataLoader]:
     """
     Loads C4/The Pile dataset for language model training with distributed support.
@@ -142,6 +150,7 @@ def get_c4_pile_prime(
         per_device_train_batch_size: Batch size per device
         split: Dataset split to use (e.g., "train", "validation")
         config: Optional dataset configuration, uses default if not provided
+        cache_dir: Directory for caching datasets. If None, uses HuggingFace default
 
     Returns:
         Tuple containing the dataset and dataloader
@@ -152,10 +161,10 @@ def get_c4_pile_prime(
     # Override the split in the config with the provided split parameter
     config.split = split
 
-    tokenizer = create_tokenizer(config)
+    tokenizer = create_tokenizer(config, cache_dir=cache_dir)
 
     # Load and process the dataset
-    tokenized_dataset = load_and_process_dataset(tokenizer, config)
+    tokenized_dataset = load_and_process_dataset(tokenizer, config, cache_dir=cache_dir)
 
     # Create data collator for language modeling
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
