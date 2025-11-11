@@ -4,6 +4,8 @@ Provides utilities for distributed training and data transformation.
 """
 
 from itertools import islice
+from pathlib import Path
+from typing import Optional
 
 import torch
 import torchvision.transforms as transforms
@@ -16,7 +18,12 @@ class StreamingImageNetDataset(IterableDataset):
     """Streaming ImageNet dataset for distributed training."""
 
     def __init__(
-        self, dataset_name: str, rank: int, world_size: int, split: str = "train"
+        self,
+        dataset_name: str,
+        rank: int,
+        world_size: int,
+        split: str = "train",
+        cache_dir: Optional[Path] = None,
     ):
         """
         Initialize the streaming dataset.
@@ -26,13 +33,14 @@ class StreamingImageNetDataset(IterableDataset):
             rank: Rank of the current process
             world_size: Total number of processes
             split: Dataset split to use ('train' or 'validation')
+            cache_dir: Directory for caching datasets. If None, uses HuggingFace default
         """
         self.split = split
         if split == "validation":
             self.dataset = load_dataset(
                 dataset_name,
                 split=split,
-                cache_dir="/workspace/datasets",
+                cache_dir=cache_dir,
                 trust_remote_code=True,
             )
         else:
@@ -40,7 +48,7 @@ class StreamingImageNetDataset(IterableDataset):
             self.dataset = load_dataset(
                 dataset_name,
                 split=split,
-                cache_dir="/workspace/datasets",
+                cache_dir=cache_dir,
                 trust_remote_code=True,
             )
         self.rank = rank
@@ -101,6 +109,7 @@ def get_imagenet(
     split: str = "train",
     image_size: int = 64,
     dataset_name: str = "imagenet-1k",
+    cache_dir: Optional[Path] = None,
 ):
     """
     Load and prepare ImageNet dataset for training or evaluation.
@@ -112,8 +121,7 @@ def get_imagenet(
         split: Dataset split to use ('train' or 'validation')
         image_size: Size to resize images to
         dataset_name: HuggingFace dataset name
-        shuffle: Whether to shuffle the data
-        num_workers: Number of worker processes for data loading
+        cache_dir: Directory for caching datasets. If None, uses HuggingFace default
 
     Returns:
         DataLoader for the dataset
@@ -121,7 +129,9 @@ def get_imagenet(
     # Create transforms
     dataset_name = "ILSVRC/imagenet-1k"
     # Load streaming dataset
-    dataset = StreamingImageNetDataset(dataset_name, local_rank, world_size, split)
+    dataset = StreamingImageNetDataset(
+        dataset_name, local_rank, world_size, split, cache_dir=cache_dir
+    )
 
     # Wrap with HuggingFaceDataset for PyTorch compatibility
     # torch_dataset = HuggingFaceDataset(dataset, transform)
@@ -135,7 +145,9 @@ def get_imagenet(
     )
 
     # Create validation dataset (for simplicity, using the same dataset)
-    val_dataset = StreamingImageNetDataset(dataset_name, 0, 1, "validation")
+    val_dataset = StreamingImageNetDataset(
+        dataset_name, 0, 1, "validation", cache_dir=cache_dir
+    )
     val_loader = StatefulDataLoader(
         val_dataset,
         batch_size=per_device_train_batch_size,

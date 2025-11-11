@@ -1,15 +1,24 @@
 from itertools import islice
+from pathlib import Path
+from typing import Optional
 
 from datasets import load_dataset
 from torch.utils.data import IterableDataset
-from transformers import Wav2Vec2Processor
 from torchdata.stateful_dataloader import StatefulDataLoader
+from transformers import Wav2Vec2Processor
 
 
 class StreamingLibriSpeechDataset(IterableDataset):
     """Streaming LibriSpeech dataset for distributed training."""
 
-    def __init__(self, dataset_name, rank, world_size, split="train.clean.100"):
+    def __init__(
+        self,
+        dataset_name,
+        rank,
+        world_size,
+        split="train.clean.100",
+        cache_dir: Optional[Path] = None,
+    ):
         """
         Initialize the streaming dataset.
 
@@ -18,19 +27,22 @@ class StreamingLibriSpeechDataset(IterableDataset):
             rank: Rank of the current process
             world_size: Total number of processes
             split: Dataset split to use
+            cache_dir: Directory for caching datasets. If None, uses HuggingFace default
         """
         if split == "validation.clean":
             self.dataset = load_dataset(
-                dataset_name, split=split, trust_remote_code=True
+                dataset_name, split=split, trust_remote_code=True, cache_dir=cache_dir
             )
         else:
             # For training, we don't shuffle
             self.dataset = load_dataset(
-                dataset_name, split=split, trust_remote_code=True
+                dataset_name, split=split, trust_remote_code=True, cache_dir=cache_dir
             )
         self.rank = rank
         self.world_size = world_size
-        self.processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base")
+        self.processor = Wav2Vec2Processor.from_pretrained(
+            "facebook/wav2vec2-base", cache_dir=cache_dir
+        )
 
     def normalize_text(self, text: str) -> str:
         # Basic LibriSpeech style normalization (could be extended)
@@ -71,7 +83,11 @@ class StreamingLibriSpeechDataset(IterableDataset):
 
 
 def get_librispeech(
-    world_size, local_rank, per_device_train_batch_size, split="train.clean.100"
+    world_size,
+    local_rank,
+    per_device_train_batch_size,
+    split="train.clean.100",
+    cache_dir: Optional[Path] = None,
 ):
     """
     Load and prepare LibriSpeech dataset for training or evaluation.
@@ -81,6 +97,7 @@ def get_librispeech(
         local_rank: Rank of current process
         per_device_train_batch_size: Batch size per device
         split: Dataset split to use
+        cache_dir: Directory for caching datasets. If None, uses HuggingFace default
 
     Returns:
         DataLoader for the dataset
@@ -88,9 +105,11 @@ def get_librispeech(
     if split == "train":
         split = "train.clean.100"
     dataset = StreamingLibriSpeechDataset(
-        "librispeech_asr", local_rank, world_size, split
+        "librispeech_asr", local_rank, world_size, split, cache_dir=cache_dir
     )
-    processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base")
+    processor = Wav2Vec2Processor.from_pretrained(
+        "facebook/wav2vec2-base", cache_dir=cache_dir
+    )
 
     def collate_fn(features):
         input_features = [{"input_values": f["input_values"]} for f in features]
@@ -123,7 +142,9 @@ def get_librispeech(
         pin_memory=True,
     )
 
-    dataset = StreamingLibriSpeechDataset("librispeech_asr", 0, 1, "validation.clean")
+    dataset = StreamingLibriSpeechDataset(
+        "librispeech_asr", 0, 1, "validation.clean", cache_dir=cache_dir
+    )
 
     val_loader = StatefulDataLoader(
         dataset,

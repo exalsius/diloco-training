@@ -1,3 +1,6 @@
+from pathlib import Path
+from typing import Optional
+
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
 from diloco_training.data.librispeech import get_librispeech
@@ -8,6 +11,7 @@ def get_wav2vec2(
     intermediate_size: int = 512,
     num_hidden_layers: int = 6,
     num_attention_heads: int = 4,
+    cache_dir: Optional[Path] = None,
 ):
     """
     Factory function to create a Wav2Vec2 model with specified parameters.
@@ -17,16 +21,20 @@ def get_wav2vec2(
         intermediate_size: Size of intermediate layers
         num_hidden_layers: Number of transformer layers
         num_attention_heads: Number of attention heads
+        cache_dir: Directory for caching models. If None, uses HuggingFace default
 
     Returns:
         Configured Wav2Vec2Model instance
     """
     # Load model config (same as pretrained one)
-    processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base")
+    processor = Wav2Vec2Processor.from_pretrained(
+        "facebook/wav2vec2-base", cache_dir=cache_dir
+    )
     config = Wav2Vec2ForCTC.from_pretrained(
         "facebook/wav2vec2-base",
         ctc_loss_reduction="mean",
         pad_token_id=processor.tokenizer.pad_token_id,
+        cache_dir=cache_dir,
     ).config
 
     # Reset model with random weights
@@ -34,6 +42,7 @@ def get_wav2vec2(
         "facebook/wav2vec2-base",
         ctc_loss_reduction="mean",
         pad_token_id=processor.tokenizer.pad_token_id,
+        cache_dir=cache_dir,
     )
     return config, model_class
 

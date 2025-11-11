@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Tuple, Union
 
 import torch
@@ -77,6 +78,7 @@ def get_gcn(
     out_channels: int = 40,
     num_layers: int = 4,  # Increased number of layers
     dropout: float = 0.0,
+    cache_dir: Optional[Path] = None,
 ) -> Tuple[None, GCNWithLoss]:
     """
     Factory function to create a GCN model with loss calculation.
@@ -87,6 +89,7 @@ def get_gcn(
         out_channels: Number of output classes
         num_layers: Number of GCN layers
         dropout: Dropout probability
+        cache_dir: Directory for caching models (not used, provided for API consistency)
 
     Returns:
         Configured GCNWithLoss model

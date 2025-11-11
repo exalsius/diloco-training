@@ -6,6 +6,7 @@ for causal language modeling tasks.
 """
 
 import logging
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from transformers import GPTNeoConfig, GPTNeoForCausalLM
@@ -49,7 +50,9 @@ def get_cpu_gpt_neo() -> Tuple[GPTNeoConfig, GPTNeoForCausalLM]:
 
 
 def get_gpt_neo(
-    model_name: Optional[str] = None, config_overrides: Optional[Dict[str, Any]] = None
+    model_name: Optional[str] = None,
+    config_overrides: Optional[Dict[str, Any]] = None,
+    cache_dir: Optional[Path] = None,
 ) -> Tuple[Optional[GPTNeoConfig], GPTNeoForCausalLM]:
     """
     Create and return a GPT-Neo model for causal language modeling.
@@ -58,6 +61,7 @@ def get_gpt_neo(
         model_name: Name or path of a pretrained model to load.
                    If None, creates a model with custom configuration.
         config_overrides: Dictionary of parameters to override in the default configuration.
+        cache_dir: Directory for caching models. If None, uses HuggingFace default.
 
     Returns:
         A GPTNeoForCausalLM model instance.
@@ -74,7 +78,9 @@ def get_gpt_neo(
     if model_name and not config_overrides:
         try:
             logger.info(f"Loading pretrained model: {model_name}")
-            return None, GPTNeoForCausalLM.from_pretrained(model_name)
+            return None, GPTNeoForCausalLM.from_pretrained(
+                model_name, cache_dir=cache_dir
+            )
         except Exception as e:
             logger.error(f"Failed to load pretrained model: {e}")
             raise

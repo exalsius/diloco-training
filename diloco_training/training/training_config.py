@@ -64,6 +64,18 @@ class TrainingConfig(BaseSettings):
     # Device configuration
     device: Literal["cuda", "cpu"] = Field(default="cuda", description="Device to use")
 
+    # Dataset configuration
+    dataset_cache_dir: Optional[Path] = Field(
+        default=None,
+        description="Directory for caching datasets. If None, uses HuggingFace default (~/.cache/huggingface/datasets)",
+    )
+
+    # Model configuration
+    model_cache_dir: Optional[Path] = Field(
+        default=None,
+        description="Directory for caching models. If None, uses HuggingFace default (~/.cache/huggingface/hub)",
+    )
+
     # WandB configuration
     wandb_project_name: str = Field(
         default="diloco_training", description="WandB project name"

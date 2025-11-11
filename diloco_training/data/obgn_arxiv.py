@@ -1,15 +1,18 @@
+from pathlib import Path
+from typing import Optional
+
 from ogb.nodeproppred import PygNodePropPredDataset
-from torch.utils.data.distributed import DistributedSampler
-from torch_geometric.loader import NeighborLoader
-from torch_geometric.transforms import ToUndirected
+from torch.serialization import safe_globals
 from torch.utils.data import IterableDataset
-from torchdata.stateful_dataloader import StatefulDataLoader
+from torch.utils.data.distributed import DistributedSampler
 
 # Allow PyG Data object to be safely unpickled
 from torch_geometric.data import Data, HeteroData
-from torch.serialization import safe_globals
 from torch_geometric.data.data import DataEdgeAttr, DataTensorAttr
 from torch_geometric.data.storage import GlobalStorage
+from torch_geometric.loader import NeighborLoader
+from torch_geometric.transforms import ToUndirected
+from torchdata.stateful_dataloader import StatefulDataLoader
 
 
 class OGBNArxivIterable(IterableDataset):
@@ -56,11 +59,32 @@ class OGBNArxivIterable(IterableDataset):
                 break
 
 
-def get_ogbn_arxiv(world_size, local_rank, per_device_train_batch_size, split="train"):
-    """Loads ogbn-arxiv dataset returning StatefulDataLoader for train & val."""
+def get_ogbn_arxiv(
+    world_size,
+    local_rank,
+    per_device_train_batch_size,
+    split="train",
+    cache_dir: Optional[Path] = None,
+):
+    """
+    Loads ogbn-arxiv dataset returning StatefulDataLoader for train & val.
+
+    Args:
+        world_size: Number of processes in distributed training
+        local_rank: Rank of current process
+        per_device_train_batch_size: Batch size per device
+        split: Dataset split to use
+        cache_dir: Directory for caching datasets. If None, uses default location
+
+    Returns:
+        Tuple of train and validation dataloaders
+    """
+    # Use cache_dir if provided, otherwise use None for default
+    root_dir = str(cache_dir) if cache_dir else None
+
     with safe_globals([Data, HeteroData, DataEdgeAttr, DataTensorAttr, GlobalStorage]):
         dataset = PygNodePropPredDataset(
-            name="ogbn-arxiv", transform=ToUndirected(), root="/workspace/datasets/obgn"
+            name="ogbn-arxiv", transform=ToUndirected(), root=root_dir
         )
     data = dataset[0]
 
