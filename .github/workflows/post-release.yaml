@@ -9,7 +9,7 @@ env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
 jobs:
   docker:
-    runs-on: self-hosted
+    runs-on: exalsius-runner-default
     steps:
       - name: Free up disk space
         run: |
