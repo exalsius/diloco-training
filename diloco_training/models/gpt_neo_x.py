@@ -32,21 +32,31 @@ TINY_LLAMA_CONFIG: Dict[str, Any] = {
 }
 
 
-def get_tiny_llama() -> Tuple[GPTNeoXConfig, GPTNeoXForCausalLM]:
+def get_tiny_llama(
+    cache_dir: Optional[Path] = None,
+) -> Tuple[GPTNeoXConfig, GPTNeoXForCausalLM]:
     """Returns a tiny Llama model suitable for testing purposes.
 
     This is a convenience function that creates a minimal Llama model
     with a small configuration, making it useful for testing and development.
+
+    Args:
+        cache_dir: Directory for caching models (not used for models created from config)
     """
     config = GPTNeoXConfig(**TINY_LLAMA_CONFIG)
     return config, GPTNeoXForCausalLM(config)
 
 
-def get_cpu_llama() -> Tuple[GPTNeoXConfig, GPTNeoXForCausalLM]:
+def get_cpu_llama(
+    cache_dir: Optional[Path] = None,
+) -> Tuple[GPTNeoXConfig, GPTNeoXForCausalLM]:
     """Returns a Llama model with default configuration for CPU usage.
 
     This is a convenience function that creates a Llama model
     with the default configuration, making it suitable for CPU-based applications.
+
+    Args:
+        cache_dir: Directory for caching models (not used for models created from config)
     """
     config = GPTNeoXConfig(**DEFAULT_CONFIG)
     return config, GPTNeoXForCausalLM(config)

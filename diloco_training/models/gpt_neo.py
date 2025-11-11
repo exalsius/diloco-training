@@ -29,21 +29,31 @@ TINY_GPT_NEO_CONFIG: Dict[str, Any] = {
 }
 
 
-def get_tiny_gpt_neo() -> Tuple[GPTNeoConfig, GPTNeoForCausalLM]:
+def get_tiny_gpt_neo(
+    cache_dir: Optional[Path] = None,
+) -> Tuple[GPTNeoConfig, GPTNeoForCausalLM]:
     """Returns a tiny GPT-Neo model suitable for testing purposes.
 
     This is a convenience function that creates a minimal GPT-Neo model
     with a small configuration, making it useful for testing and development.
+
+    Args:
+        cache_dir: Directory for caching models (not used for models created from config)
     """
     config = GPTNeoConfig(**TINY_GPT_NEO_CONFIG)
     return config, GPTNeoForCausalLM(config)
 
 
-def get_cpu_gpt_neo() -> Tuple[GPTNeoConfig, GPTNeoForCausalLM]:
+def get_cpu_gpt_neo(
+    cache_dir: Optional[Path] = None,
+) -> Tuple[GPTNeoConfig, GPTNeoForCausalLM]:
     """Returns a tiny GPT-Neo model suitable for testing purposes.
 
     This is a convenience function that creates a minimal GPT-Neo model
     with a small configuration, making it useful for testing and development.
+
+    Args:
+        cache_dir: Directory for caching models (not used for models created from config)
     """
     config = GPTNeoConfig(**DEFAULT_CONFIG)
     return config, GPTNeoForCausalLM(config)
