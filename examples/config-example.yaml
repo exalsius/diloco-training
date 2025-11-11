@@ -1,8 +1,6 @@
 # ============================================================================
 # DiLoCo Training - Complete Configuration Example
 # ============================================================================
-# This file contains all 31 available configuration parameters for DiLoCo training.
-# Each parameter includes its description, type, and default value.
 #
 # Usage:
 #   python diloco_training/training/start_training.py --config config-example.yaml
@@ -114,6 +112,20 @@ wandb_group: null
 # Enable or disable WandB logging
 # Type: bool | Default: true
 wandb_logging: true
+
+# ============================================================================
+# Hugging Face Model Upload Configuration
+# ============================================================================
+
+# Enable automatic model upload to Hugging Face Hub after training
+# Type: bool | Default: false
+hf_upload: false
+
+# Hugging Face repository name for uploading the trained model
+# Format: "your-username/your-model-name"
+# Type: str | Default: null
+# Note: Requires HF_TOKEN environment variable to be set for authentication
+trained_model_hf_name: null
 
 # ============================================================================
 # Advanced Features
