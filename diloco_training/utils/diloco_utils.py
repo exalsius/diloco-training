@@ -167,9 +167,9 @@ def evaluate_model(eval_dataloader, model, global_rank, local_rank, device):
 
         # Log evaluation metrics
         eval_metrics = {
-            "eval/duration": eval_duration,
-            "eval/steps": step_eval,
-            "eval/samples_per_second": (
+            "duration": eval_duration,
+            "steps": step_eval,
+            "samples_per_second": (
                 step_eval / eval_duration if eval_duration > 0 else 0
             ),
         }
@@ -177,95 +177,26 @@ def evaluate_model(eval_dataloader, model, global_rank, local_rank, device):
         if is_gan:
             eval_metrics.update(
                 {
-                    "eval/loss": loss_eval,
-                    "eval/d_loss": loss_eval,
+                    "loss": loss_eval,
+                    "d_loss": loss_eval,
                 }
             )
-            return {"eval_loss": loss_eval, "eval_d_loss": loss_eval, **eval_metrics}
+            return {"loss": loss_eval, "d_loss": loss_eval, **eval_metrics}
         else:
             perplexity = torch.exp(loss_eval.detach().clone()).item()
             eval_metrics.update(
                 {
-                    "eval/loss": loss_eval,
-                    "eval/perplexity": perplexity,
+                    "loss": loss_eval,
+                    "perplexity": perplexity,
                 }
             )
             return {
-                "eval_loss": loss_eval,
-                "eval_perplexity": perplexity,
+                "loss": loss_eval,
+                "perplexity": perplexity,
                 **eval_metrics,
             }
     else:
         return None
-
-
-def log_inner_stats(
-    global_rank, local_rank, real_step, loss_batch, sync_count, wandb_logging=True
-):
-    dict_to_log = {
-        "global_rank": global_rank,
-        "local_rank": local_rank,
-        "inner_loss": loss_batch.item(),
-        "real_step": real_step,
-        "inner_perplexity": torch.exp(loss_batch).item(),
-        "sync_count": sync_count,
-    }
-
-    if wandb_logging:
-        wandb.log(dict_to_log)
-    else:
-        logger.info(f"inner stats: {dict_to_log}")
-
-
-def log_stats(
-    local_rank,
-    real_step,
-    loss_batch,
-    world_size,
-    batch_size,
-    optim_method,
-    sync_count,
-    total_bytes_sent,
-    val_stats,
-    local_steps,
-    per_device_train_batch_size,
-    args,
-    wandb_logging=True,
-):
-    if local_rank == 0:
-        total_mb_sent = total_bytes_sent / (1024 * 1024)
-        try:
-            loss_b = loss_batch.item()
-        except AttributeError:
-            loss_b = loss_batch
-
-        # Create a serializable version of args
-        args_dict = vars(args)
-        serializable_args = {}
-        for key, value in args_dict.items():
-            if isinstance(value, Path):
-                serializable_args[key] = str(value)
-            else:
-                serializable_args[key] = value
-
-        dict_to_log = {
-            "Loss": loss_b,
-            "real_step": real_step,
-            "Perplexity": torch.exp(loss_batch).item(),
-            "total_steps_all_workers": real_step * world_size,
-            "total_samples_all_workers": real_step * batch_size * world_size,
-            "optim_method": optim_method,
-            "sync_count": sync_count,
-            "total_bytes_sent_mb": total_mb_sent,
-            "val_stats": val_stats,
-            "local_steps": local_steps,
-            "batch_size": batch_size,
-            "per_device_train_batch_size": per_device_train_batch_size,
-            "args": serializable_args,
-        }
-        logger.info("Stats: %s", dict_to_log)
-        if wandb_logging:
-            wandb.log(dict_to_log)
 
 
 def prepare_batch(batch, device="cuda"):

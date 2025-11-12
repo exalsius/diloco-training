@@ -13,8 +13,6 @@ from diloco_training.utils.diloco_utils import (
     evaluate_model,
     forward_and_compute_loss,
     get_offloaded_param,
-    log_inner_stats,
-    log_stats,
     prepare_batch,
     update_inner_optimizer,
     update_outer_optimizer,
@@ -348,20 +346,17 @@ class DistributedTrainer:
                         self.global_rank,
                         self.device,
                     )
-                    # dist.barrier()
-                    log_stats(
-                        self.local_rank,
-                        real_step,
-                        self.loss_batch,
-                        self.world_size,
-                        self.batch_size,
-                        self.optim_method,
-                        self.sync_count,
-                        self.total_bytes_sent,
-                        val_stats,
-                        self.local_steps,
-                        self.per_device_train_batch_size,
-                        self.args,
+                    self.metrics_logger.log_outer_step_metrics(
+                        real_step=real_step,
+                        loss=self.loss_batch,
+                        world_size=self.world_size,
+                        batch_size=self.batch_size,
+                        optim_method=self.optim_method,
+                        sync_count=self.sync_count,
+                        total_bytes_sent=self.total_bytes_sent,
+                        val_stats=val_stats,
+                        local_steps=self.local_steps,
+                        per_device_train_batch_size=self.per_device_train_batch_size,
                     )
                     self.save_checkpoint(step, real_step)
                 self.loss_batch = 0 if self.total_steps > real_step else self.loss_batch
@@ -376,20 +371,17 @@ class DistributedTrainer:
                         self.global_rank,
                         self.device,
                     )
-                    # dist.barrier()
-                    log_stats(
-                        self.local_rank,
-                        real_step,
-                        self.loss_batch,
-                        self.world_size,
-                        self.batch_size,
-                        self.optim_method,
-                        self.sync_count,
-                        self.total_bytes_sent,
-                        val_stats,
-                        self.local_steps,
-                        self.per_device_train_batch_size,
-                        self.args,
+                    self.metrics_logger.log_outer_step_metrics(
+                        real_step=real_step,
+                        loss=self.loss_batch,
+                        world_size=self.world_size,
+                        batch_size=self.batch_size,
+                        optim_method=self.optim_method,
+                        sync_count=self.sync_count,
+                        total_bytes_sent=self.total_bytes_sent,
+                        val_stats=val_stats,
+                        local_steps=self.local_steps,
+                        per_device_train_batch_size=self.per_device_train_batch_size,
                     )
                     self.save_checkpoint(step, real_step, is_final_step=True)
                 return
@@ -444,7 +436,10 @@ class DistributedTrainer:
 
                 # Log inner training metrics
                 self.metrics_logger.log_training_metrics(
-                    step=real_step, loss=self.loss_batch.item(), loss_type="inner"
+                    step=real_step,
+                    loss=self.loss_batch.item(),
+                    loss_type="inner",
+                    sync_count=self.sync_count,
                 )
 
                 # Log system metrics periodically
@@ -467,71 +462,6 @@ class DistributedTrainer:
                             batch_size, forward_time
                         )
 
-                log_inner_stats(
-                    self.global_rank,
-                    self.local_rank,
-                    real_step,
-                    self.loss_batch,
-                    self.sync_count,
-                    self.config.wandb_logging,
-                )
-
-                if (
-                    self.count_inner_optimizer_steps % self.local_steps == 0
-                    and not self.heterogeneous
-                ):
-                    self.count_inner_optimizer_steps = 0
-
-                    # Start timing for outer optimizer sync
-                    self.metrics_logger.start_timer("outer_sync")
-                    logger.info(
-                        f"Global rank {self.global_rank} - Local rank {self.local_rank} - Syncing outer optimizer at step {real_step}"
-                    )
-                    main_param = [
-                        param
-                        for group in self.inner_optimizer.param_groups
-                        for param in group["params"]
-                    ]
-                    bytes_sent = update_outer_optimizer(
-                        self.params_offloaded,
-                        main_param,
-                        self.optim_method,
-                        self.world_size,
-                        self.outer_optimizer,
-                        self.local_steps,
-                        device=self.device,
-                        quantization=self.quantization,
-                        metrics_logger=self.metrics_logger,
-                        sum_local_steps=self.sum_local_steps,
-                        async_communication=self.config.async_communication,
-                    )
-                    self.params_offloaded = get_offloaded_param(
-                        self.outer_optimizer, device=self.device
-                    )
-                    sync_time = self.metrics_logger.end_timer("outer_sync")
-
-                    # Update reference parameters after outer optimizer sync
-                    self.reference_params = [
-                        param.clone().detach() for param in self.model.parameters()
-                    ]
-
-                    # Update the total bytes sent and received
-                    self.total_bytes_sent += bytes_sent
-                    self.sync_count += 1
-
-                    # Log outer sync metrics
-                    self.metrics_logger.log_training_metrics(
-                        step=real_step,
-                        loss=self.loss_batch.item(),
-                        loss_type="outer",
-                        sync_time=sync_time,
-                        bytes_sent_mb=bytes_sent / (1024 * 1024),
-                    )
-                    logger.info(
-                        f"Global rank {self.global_rank} - Local rank {self.local_rank} - Outer optimizer synced at step {real_step}"
-                    )
-                    self.count_outer_optimizer_steps += 1
-
                 if (
                     self.count_outer_optimizer_steps % self.checkpoint_interval == 0
                     and not self.heterogeneous
@@ -550,19 +480,17 @@ class DistributedTrainer:
                     self.metrics_logger.end_timer("evaluation")
 
                     dist.barrier()
-                    log_stats(
-                        self.local_rank,
-                        real_step,
-                        self.loss_batch,
-                        self.world_size,
-                        self.batch_size,
-                        self.optim_method,
-                        self.sync_count,
-                        self.total_bytes_sent,
-                        val_stats,
-                        self.local_steps,
-                        self.per_device_train_batch_size,
-                        self.args,
+                    self.metrics_logger.log_outer_step_metrics(
+                        real_step=real_step,
+                        loss=self.loss_batch,
+                        world_size=self.world_size,
+                        batch_size=self.batch_size,
+                        optim_method=self.optim_method,
+                        sync_count=self.sync_count,
+                        total_bytes_sent=self.total_bytes_sent,
+                        val_stats=val_stats,
+                        local_steps=self.local_steps,
+                        per_device_train_batch_size=self.per_device_train_batch_size,
                     )
 
                     self.metrics_logger.start_timer("checkpointing")
@@ -621,20 +549,17 @@ class DistributedTrainer:
                         self.global_rank,
                         self.device,
                     )
-                    log_stats(
-                        self.local_rank,
-                        real_step,
-                        self.loss_batch,
-                        self.world_size,
-                        self.batch_size,
-                        self.optim_method,
-                        self.sync_count,
-                        self.total_bytes_sent,
-                        val_stats,
-                        self.local_steps,
-                        self.per_device_train_batch_size,
-                        self.args,
-                        self.config.wandb_logging,
+                    self.metrics_logger.log_outer_step_metrics(
+                        real_step=real_step,
+                        loss=self.loss_batch,
+                        world_size=self.world_size,
+                        batch_size=self.batch_size,
+                        optim_method=self.optim_method,
+                        sync_count=self.sync_count,
+                        total_bytes_sent=self.total_bytes_sent,
+                        val_stats=val_stats,
+                        local_steps=self.local_steps,
+                        per_device_train_batch_size=self.per_device_train_batch_size,
                     )
                     self.save_checkpoint(step, real_step, is_final_step=True)
 
@@ -722,100 +647,35 @@ class DistributedTrainer:
                     loss_type="gan",
                     d_loss=d_loss.item(),
                     g_loss=g_loss.item(),
+                    sync_count=self.sync_count,
                 )
 
                 # Log system metrics periodically
                 if real_step % 10 == 0:
                     self.metrics_logger.log_system_metrics()
 
-                log_inner_stats(
-                    self.global_rank,
-                    self.local_rank,
-                    real_step,
-                    self.loss_batch,
-                    self.sync_count,
-                    self.config.wandb_logging,
-                )
-
-                # Handle outer optimizer sync for DiLoCo
+                # Log throughput metrics
+                batch_size = batch[list(batch.keys())[0]].size(0)
                 if (
-                    self.optim_method != "ddp"
-                    and self.count_inner_optimizer_steps % self.local_steps == 0
-                    and not self.heterogeneous
+                    hasattr(self.metrics_logger, "timers")
+                    and "forward_pass" in self.metrics_logger.timers
                 ):
-                    self.count_inner_optimizer_steps = 0
-                    self.metrics_logger.start_timer("gan_outer_sync")
-                    logger.info(
-                        f"Global rank {self.global_rank} - Local rank {self.local_rank} - Syncing GAN outer optimizers at step {real_step}"
+                    forward_time = (
+                        self.metrics_logger.timers["forward_pass"][-1]
+                        if self.metrics_logger.timers["forward_pass"]
+                        else 0
                     )
+                    if forward_time > 0:
+                        self.metrics_logger.log_throughput_metrics(
+                            batch_size, forward_time
+                        )
 
-                    # Sync discriminator
-                    main_param_d = [
-                        param
-                        for group in self.inner_optimizer_d.param_groups
-                        for param in group["params"]
-                    ]
-                    bytes_sent_d = update_outer_optimizer(
-                        self.params_offloaded_d,
-                        main_param_d,
-                        self.optim_method,
-                        self.world_size,
-                        self.outer_optimizer_d,
-                        self.local_steps,
-                        device=self.device,
-                        quantization=self.quantization,
-                        metrics_logger=self.metrics_logger,
-                        sum_local_steps=self.sum_local_steps,
-                        async_communication=self.config.async_communication,
-                    )
-                    self.params_offloaded_d = get_offloaded_param(
-                        self.outer_optimizer_d, device=self.device
-                    )
-
-                    # Sync generator
-                    main_param_g = [
-                        param
-                        for group in self.inner_optimizer_g.param_groups
-                        for param in group["params"]
-                    ]
-                    bytes_sent_g = update_outer_optimizer(
-                        self.params_offloaded_g,
-                        main_param_g,
-                        self.optim_method,
-                        self.world_size,
-                        self.outer_optimizer_g,
-                        self.local_steps,
-                        device=self.device,
-                        quantization=self.quantization,
-                        metrics_logger=self.metrics_logger,
-                        sum_local_steps=self.sum_local_steps,
-                        async_communication=self.config.async_communication,
-                    )
-                    self.params_offloaded_g = get_offloaded_param(
-                        self.outer_optimizer_g, device=self.device
-                    )
-
-                    self.reference_params = [
-                        param.clone().detach() for param in self.model.parameters()
-                    ]
-                    self.total_bytes_sent += bytes_sent_d + bytes_sent_g
-                    self.sync_count += 1
-                    sync_time = self.metrics_logger.end_timer("gan_outer_sync")
-
-                    # Log GAN outer sync metrics
-                    self.metrics_logger.log_training_metrics(
-                        step=real_step,
-                        loss=self.loss_batch.item(),
-                        loss_type="gan_outer",
-                        sync_time=sync_time,
-                        bytes_sent_d_mb=bytes_sent_d / (1024 * 1024),
-                        bytes_sent_g_mb=bytes_sent_g / (1024 * 1024),
-                    )
-                    self.count_outer_optimizer_steps += 1
                 if (
                     self.count_outer_optimizer_steps % self.checkpoint_interval == 0
                     and not self.heterogeneous
                 ):
+                    # Start timing for evaluation and checkpointing
+                    logger.info(f"Outer loop syncs: {self.count_outer_optimizer_steps}")
                     self.count_outer_optimizer_steps = 1
                     self.metrics_logger.start_timer("evaluation")
                     val_stats = evaluate_model(
@@ -829,19 +689,17 @@ class DistributedTrainer:
 
                     if self.optim_method != "ddp":
                         dist.barrier()
-                    log_stats(
-                        self.local_rank,
-                        real_step,
-                        self.loss_batch,
-                        self.world_size,
-                        self.batch_size,
-                        self.optim_method,
-                        self.sync_count,
-                        self.total_bytes_sent,
-                        val_stats,
-                        self.local_steps,
-                        self.per_device_train_batch_size,
-                        self.args,
+                    self.metrics_logger.log_outer_step_metrics(
+                        real_step=real_step,
+                        loss=self.loss_batch,
+                        world_size=self.world_size,
+                        batch_size=self.batch_size,
+                        optim_method=self.optim_method,
+                        sync_count=self.sync_count,
+                        total_bytes_sent=self.total_bytes_sent,
+                        val_stats=val_stats,
+                        local_steps=self.local_steps,
+                        per_device_train_batch_size=self.per_device_train_batch_size,
                     )
 
                     self.metrics_logger.start_timer("checkpointing")
@@ -922,19 +780,17 @@ class DistributedTrainer:
                         self.global_rank,
                         self.device,
                     )
-                    log_stats(
-                        self.local_rank,
-                        real_step,
-                        self.loss_batch,
-                        self.world_size,
-                        self.batch_size,
-                        self.optim_method,
-                        self.sync_count,
-                        self.total_bytes_sent,
-                        val_stats,
-                        self.local_steps,
-                        self.per_device_train_batch_size,
-                        self.args,
+                    self.metrics_logger.log_outer_step_metrics(
+                        real_step=real_step,
+                        loss=self.loss_batch,
+                        world_size=self.world_size,
+                        batch_size=self.batch_size,
+                        optim_method=self.optim_method,
+                        sync_count=self.sync_count,
+                        total_bytes_sent=self.total_bytes_sent,
+                        val_stats=val_stats,
+                        local_steps=self.local_steps,
+                        per_device_train_batch_size=self.per_device_train_batch_size,
                     )
                     self.save_checkpoint(step, real_step, is_final_step=True)
 
