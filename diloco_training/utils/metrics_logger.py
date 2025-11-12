@@ -222,7 +222,7 @@ class MetricsLogger:
             f"training/{loss_type}_perplexity": (
                 torch.exp(torch.tensor(loss)).item() if loss_type != "gan" else loss
             ),
-            "step": step,
+            "real_step": step,
             "local_rank": self.local_rank,
             "global_rank": self.global_rank,
         }
@@ -239,16 +239,63 @@ class MetricsLogger:
             logger.info(
                 f"training/{loss_type}_perplexity: {torch.exp(torch.tensor(loss)).item() if loss_type != 'gan' else loss}"
             )
-            logger.info(f"step: {step}")
+            logger.info(f"real_step: {step}")
             logger.info(f"local_rank: {self.local_rank}")
             logger.info(f"global_rank: {self.global_rank}")
+
+    def log_outer_step_metrics(
+        self,
+        real_step: int,
+        loss: float,
+        world_size: int,
+        batch_size: int,
+        optim_method: str,
+        sync_count: int,
+        total_bytes_sent: float,
+        val_stats: Dict = None,
+        local_steps: int = None,
+        per_device_train_batch_size: int = None,
+    ):
+        """Log comprehensive outer loop metrics"""
+        try:
+            loss_value = loss.item() if hasattr(loss, "item") else loss
+        except AttributeError:
+            loss_value = loss
+
+        metrics = {
+            "training/outer_loss": loss_value,
+            "training/outer_perplexity": torch.exp(torch.tensor(loss_value)).item(),
+            "real_step": real_step,
+            "training/total_steps_all_workers": real_step * world_size,
+            "training/total_samples_all_workers": real_step * batch_size * world_size,
+            "training/optim_method": optim_method,
+            "comm/sync_count": sync_count,
+            "comm/total_bytes_sent_mb": total_bytes_sent / (1024 * 1024),
+            "training/local_steps": local_steps,
+            "training/batch_size": batch_size,
+            "training/per_device_train_batch_size": per_device_train_batch_size,
+            "local_rank": self.local_rank,
+            "global_rank": self.global_rank,
+        }
+
+        # Add validation stats if available
+        if val_stats:
+            for key, value in val_stats.items():
+                if isinstance(value, (int, float, bool, str)):
+                    metrics[f"eval/{key}"] = value
+
+        if self.wandb_logging:
+            wandb.log(metrics)
+        else:
+            logger.info("Skipping WandB logging for outer step metrics")
+            logger.info(f"Outer step metrics: {metrics}")
 
     def log_timing_summary(self, step: int):
         """Log timing summary for various operations"""
         if not self.timers:
             return
 
-        timing_metrics = {"step": step, "rank": self.local_rank}
+        timing_metrics = {"real_step": step, "rank": self.local_rank}
 
         for timer_name, times in self.timers.items():
             if times:
