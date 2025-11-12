@@ -436,7 +436,10 @@ class DistributedTrainer:
 
                 # Log inner training metrics
                 self.metrics_logger.log_training_metrics(
-                    step=real_step, loss=self.loss_batch.item(), loss_type="inner", sync_count=self.sync_count
+                    step=real_step,
+                    loss=self.loss_batch.item(),
+                    loss_type="inner",
+                    sync_count=self.sync_count,
                 )
 
                 # Log system metrics periodically
