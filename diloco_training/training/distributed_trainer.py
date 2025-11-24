@@ -140,6 +140,7 @@ class DistributedTrainer:
             global_rank=self.global_rank,
             world_size=self.world_size,
             device=self.device,
+            gpu_type=self.config.gpu_type,
             wandb_logging=self.config.wandb_logging,
         )
 

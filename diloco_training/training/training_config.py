@@ -63,6 +63,9 @@ class TrainingConfig(BaseSettings):
 
     # Device configuration
     device: Literal["cuda", "cpu"] = Field(default="cuda", description="Device to use")
+    gpu_type: Literal["nvidia", "amd"] = Field(
+        default="nvidia", description="GPU type (nvidia or amd)"
+    )
 
     # Dataset configuration
     dataset_cache_dir: Optional[Path] = Field(

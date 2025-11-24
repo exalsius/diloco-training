@@ -17,7 +17,7 @@ export MASTER_PORT="29500"
 # Torchrun command
 torchrun \
   --nnodes=1 \
-  --nproc_per_node=2 \
+  --nproc_per_node=1 \
   --node_rank=0 \
   diloco_training/training/start_training.py \
   --config config.yaml
