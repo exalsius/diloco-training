@@ -47,11 +47,11 @@ WORKDIR /app
 # Build flash-attention
 ENV FLASH_ATTENTION_TRITON_AMD_ENABLE="TRUE"
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv add --no-build-isolation triton==3.2.0 && \
-    uv add --no-build-isolation /tmp/flash-attention
+    uv add --no-build-isolation --extra rocm triton==3.2.0&& \
+    uv add --no-build-isolation --extra rocm /tmp/flash-attention
 # Install pyg-rocm-build wheels
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv add /tmp/pyg-rocm-build/*whl
+    uv add --extra rocm /tmp/pyg-rocm-build/*whl
 
 # Verify installations
 RUN python -c "import torch; print('PyTorch version:', torch.__version__); print('ROCm available:', torch.cuda.is_available()); print('ROCm version:', torch.version.hip if hasattr(torch.version, 'hip') else 'N/A'); import torch_geometric; print('PyTorch Geometric version:', torch_geometric.__version__)"
