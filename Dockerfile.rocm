@@ -51,13 +51,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv add --frozen --no-build-isolation /tmp/flash-attention
 # Install pyg-rocm-build wheels
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv add --frozen /tmp/pyg-rocm-build/*whl
-
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv add --frozen amdsmi
+    uv pip install /tmp/pyg-rocm-build/*whl
 
 # Verify installations
-RUN python -c "import torch; print('PyTorch version:', torch.__version__); print('ROCm available:', torch.cuda.is_available()); print('ROCm version:', torch.version.hip if hasattr(torch.version, 'hip') else 'N/A'); import torch_geometric; print('PyTorch Geometric version:', torch_geometric.__version__)"
+RUN python -c "import torch; print('torch', torch.__version__); print('ROCm available:', torch.cuda.is_available()); print('ROCm version:', torch.version.hip if hasattr(torch.version, 'hip') else 'N/A'); import torch_geometric; print('PyTorch Geometric version:', torch_geometric.__version__); import flash_attn; print('flash_attn', flash_attn.__version__)"
 
 # --- Final, lean runtime ---
 FROM rocm/dev-ubuntu-22.04:6.3 AS final
