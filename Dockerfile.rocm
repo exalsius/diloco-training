@@ -54,7 +54,16 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install /tmp/pyg-rocm-build/*whl
 
 # Verify installations
-RUN python -c "import torch; print('torch', torch.__version__); print('ROCm available:', torch.cuda.is_available()); print('ROCm version:', torch.version.hip if hasattr(torch.version, 'hip') else 'N/A'); import torch_geometric; print('PyTorch Geometric version:', torch_geometric.__version__); import flash_attn; print('flash_attn', flash_attn.__version__)"
+RUN python - <<'PYCODE'
+import torch
+print("torch", torch.__version__)
+print("ROCm available:", torch.cuda.is_available())
+print("ROCm version:", torch.version.hip if hasattr(torch.version, "hip") else "N/A")
+import torch_geometric
+print("PyTorch Geometric version:", torch_geometric.__version__)
+import flash_attn
+print("flash_attn", flash_attn.__version__)
+PYCODE
 
 # --- Final, lean runtime ---
 FROM rocm/dev-ubuntu-22.04:6.3 AS final
