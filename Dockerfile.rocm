@@ -47,7 +47,7 @@ WORKDIR /app
 # Build flash-attention
 ENV FLASH_ATTENTION_TRITON_AMD_ENABLE="TRUE"
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv add --no-build-isolation --extra rocm triton==3.2.0&& \
+    uv add --no-build-isolation --extra rocm triton==3.3.1 && \
     uv add --no-build-isolation --extra rocm /tmp/flash-attention
 # Install pyg-rocm-build wheels
 RUN --mount=type=cache,target=/root/.cache/uv \
