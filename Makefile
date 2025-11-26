@@ -34,15 +34,18 @@ lock-cuda:
 	echo "*"
 	echo "* Generating CUDA lock file (uv.lock)..."
 	echo "*"
-	uv pip compile pyproject.toml --extra cuda --extra dev --extra test --extra-index-url https://download.pytorch.org/whl/cu124 -o uv.lock
+	uv lock --index https://download.pytorch.org/whl/cu126 --index-strategy unsafe-best-match
 .PHONY: lock-cuda
 
 lock-rocm:
 	echo "*"
 	echo "* Generating ROCm lock file (uv.rocm.lock)..."
 	echo "*"
-	uv pip compile pyproject.toml --extra rocm --extra dev --extra test --extra-index-url https://download.pytorch.org/whl/rocm6.2 -o uv.rocm.lock
-	echo "* Created uv.rocm.lock"
+	mv uv.lock uv.cuda.lock.tmp
+	uv lock --index https://download.pytorch.org/whl/rocm6.3 --index-strategy unsafe-best-match
+	mv uv.lock uv.rocm.lock
+	mv uv.cuda.lock.tmp uv.lock
+	echo "* Created uv.rocm.lock and restored uv.lock"
 .PHONY: lock-rocm
 
 lock-all: lock-cuda lock-rocm
