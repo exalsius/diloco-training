@@ -36,7 +36,6 @@ rocm = [
     "torch==2.7.1",
     "torchvision",
     "torchaudio",
-    "amdsmi",
     "psutil"
 ]
 dev = [
