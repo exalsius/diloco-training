@@ -29,7 +29,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY diloco_training/ /app/diloco_training/
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv add --reinstall pip wheel setuptools ninja packaging
+    uv sync --frozen --no-dev --extra cuda
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv add pip wheel setuptools ninja packaging
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv add --no-build-isolation flash-attn

@@ -19,7 +19,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Build tools
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        build-essential git unzip cmake ninja-build && \
+        build-essential git unzip wget cmake ninja-build && \
     rm -rf /var/lib/apt/lists/*
 
 # Resolve dependencies into a venv with ROCm extras
@@ -32,7 +32,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY diloco_training/ /app/diloco_training/
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv add --reinstall pip wheel setuptools ninja packaging
+    uv sync --frozen --no-dev --extra rocm
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv add pip wheel setuptools ninja packaging
 
 # Clone flash-attention and get pyg-rocm-build wheels
 WORKDIR /tmp
