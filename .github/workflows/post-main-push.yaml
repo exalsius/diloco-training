@@ -13,6 +13,7 @@ jobs:
   build-main:
     runs-on: exalsius-runner-default
     strategy:
+      fail-fast: false
       matrix:
         include:
           - image_tag: cuda

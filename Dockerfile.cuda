@@ -37,6 +37,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv add --no-build-isolation flash-attn
 
+# Verify installations
 RUN python -c "import torch; print('torch', torch.__version__); import flash_attn; print('flash_attn', flash_attn.__version__)"
 
 # --- Final, lean runtime ---
