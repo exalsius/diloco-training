@@ -1,0 +1,100 @@
+# --- Builder with ROCm toolchain ---
+FROM rocm/dev-ubuntu-22.04:6.2.4 AS builder
+
+# uv
+COPY --from=ghcr.io/astral-sh/uv:0.8.9 /uv /bin/uv
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON=3.12 \
+    DEBIAN_FRONTEND=noninteractive \
+    TZ=Europe/Berlin \
+    ROCM_VERSION=6.2 \
+    HIP_PLATFORM=amd
+
+WORKDIR /app
+
+# Build tools and Python
+RUN apt-get update && \
+    apt-get install -y software-properties-common && \
+    add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3.12 python3.12-dev python3.12-venv \
+        build-essential git cmake ninja-build \
+        rocm-dev rocm-libs && \
+    rm -rf /var/lib/apt/lists/*
+
+# Resolve base dependencies (no dev) with ROCm extras but without PyTorch yet
+# We'll install PyTorch from custom wheels after base dependencies
+COPY uv.rocm.lock pyproject.toml /app/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-install-project --no-dev --extra rocm
+
+# Your code
+COPY . /app
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --extra rocm
+
+ENV VIRTUAL_ENV=/app/.venv
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+# Upgrade pip and build tools
+RUN /app/.venv/bin/python -m ensurepip --upgrade || true \
+ && /app/.venv/bin/python -m pip install --upgrade pip wheel setuptools ninja packaging
+
+# Install PyTorch for ROCm from custom wheel URLs
+# Note: Update these URLs based on your specific ROCm version and PyTorch version requirements
+# Example URLs - adjust based on actual availability
+RUN /app/.venv/bin/python -m pip install --index-url https://download.pytorch.org/whl/rocm6.2 \
+    torch torchvision torchaudio
+
+# Clone and build flash-attention for ROCm
+WORKDIR /tmp
+RUN git clone https://github.com/ROCm/flash-attention.git && \
+    cd flash-attention && \
+    /app/.venv/bin/python -m pip install triton==3.2.0
+
+# Build and install flash-attn with ROCm support
+WORKDIR /tmp/flash-attention
+ENV FLASH_ATTENTION_TRITON_AMD_ENABLE="TRUE"
+RUN /app/.venv/bin/python -m pip install . --no-build-isolation
+
+# Install custom PyTorch Geometric wheels for ROCm
+COPY scripts/setup_rocm.sh /tmp/setup_rocm.sh
+RUN chmod +x /tmp/setup_rocm.sh && \
+    cd /tmp && \
+    /tmp/setup_rocm.sh && \
+    rm -f /tmp/setup_rocm.sh
+
+# Verify installations
+WORKDIR /app
+RUN /app/.venv/bin/python -c "import torch; print('PyTorch version:', torch.__version__); print('ROCm available:', torch.cuda.is_available()); print('ROCm version:', torch.version.hip if hasattr(torch.version, 'hip') else 'N/A'); import torch_geometric; print('PyTorch Geometric version:', torch_geometric.__version__)"
+
+# --- Final, lean runtime ---
+FROM rocm/dev-ubuntu-22.04:6.2.4 AS final
+WORKDIR /app
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=Europe/Berlin \
+    ROCM_VERSION=6.2 \
+    HIP_PLATFORM=amd
+
+# Install Python and ROCm runtime
+RUN apt-get update && \
+    apt-get install -y software-properties-common && \
+    add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3.12 python3.12-dev python3.12-venv \
+        rocm-dev rocm-libs && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/diloco_training /app/diloco_training
+
+ENV PYTHONPATH="/app" \
+    PATH="/app/.venv/bin:$PATH" \
+    PIP_NO_CACHE_DIR=1
+
+EXPOSE 29500
+
