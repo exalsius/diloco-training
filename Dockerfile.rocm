@@ -78,14 +78,12 @@ ENV UV_COMPILE_BYTECODE=1 \
     TZ=Europe/Berlin \
     ROCM_VERSION=6.3 \
     HIP_PLATFORM=amd
-
-# Create fresh venv in final stage (installs Python 3.12)
-RUN uv venv --python 3.12
-ENV PATH="/app/.venv/bin:$PATH"
-
+    
 # Copy only site-packages from builder
-COPY --from=builder /app/.venv/lib/python3.12/site-packages /app/.venv/lib/python3.12/site-packages
+COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/diloco_training /app/diloco_training
+    
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Verify installations in final image
 RUN python - <<'PYCODE'
