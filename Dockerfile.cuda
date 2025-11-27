@@ -62,13 +62,13 @@ ENV UV_COMPILE_BYTECODE=1 \
     DEBIAN_FRONTEND=noninteractive \
     TZ=Europe/Berlin
 
-# Copy entire venv (includes Python) and application code
-COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /app/diloco_training /app/diloco_training
+# Create fresh venv in final stage (installs Python 3.12)
+RUN uv venv --python 3.12
+ENV PATH="/app/.venv/bin:$PATH"
 
-ENV PYTHONPATH="/app" \
-    PATH="/app/.venv/bin:$PATH" \
-    PIP_NO_CACHE_DIR=1
+# Copy site-packages from builder into the fresh venv
+COPY --from=builder /app/.venv/lib/python3.12/site-packages /app/.venv/lib/python3.12/site-packages
+COPY --from=builder /app/diloco_training /app/diloco_training
 
 # Verify installations in final image
 RUN python - <<'PYCODE'
