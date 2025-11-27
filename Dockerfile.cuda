@@ -50,34 +50,4 @@ import flash_attn
 print("flash_attn", flash_attn.__version__)
 PYCODE
 
-# --- Final, lean runtime ---
-FROM pytorch/pytorch:2.7.1-cuda12.6-cudnn9-runtime AS final
-WORKDIR /app
-
-# uv
-COPY --from=ghcr.io/astral-sh/uv:0.8.9 /uv /bin/uv
-ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_PYTHON=3.12 \
-    DEBIAN_FRONTEND=noninteractive \
-    TZ=Europe/Berlin
-
-# Copy site-packages from builder into the fresh venv
-COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /app/diloco_training /app/diloco_training
-
-ENV PATH="/app/.venv/bin:$PATH"
-
-# Verify installations in final image
-RUN python - <<'PYCODE'
-import torch
-print("torch", torch.__version__)
-print("CUDA available:", torch.cuda.is_available())
-print("CUDA version:", torch.version.cuda if hasattr(torch.version, "cuda") else "N/A")
-import torch_geometric
-print("PyTorch Geometric version:", torch_geometric.__version__)
-import flash_attn
-print("flash_attn", flash_attn.__version__)
-PYCODE
-
 EXPOSE 29500
