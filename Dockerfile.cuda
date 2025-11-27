@@ -62,11 +62,24 @@ ENV UV_COMPILE_BYTECODE=1 \
     DEBIAN_FRONTEND=noninteractive \
     TZ=Europe/Berlin
 
+# Copy entire venv (includes Python) and application code
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/diloco_training /app/diloco_training
 
 ENV PYTHONPATH="/app" \
     PATH="/app/.venv/bin:$PATH" \
     PIP_NO_CACHE_DIR=1
+
+# Verify installations in final image
+RUN python - <<'PYCODE'
+import torch
+print("torch", torch.__version__)
+print("CUDA available:", torch.cuda.is_available())
+print("CUDA version:", torch.version.cuda if hasattr(torch.version, "cuda") else "N/A")
+import torch_geometric
+print("PyTorch Geometric version:", torch_geometric.__version__)
+import flash_attn
+print("flash_attn", flash_attn.__version__)
+PYCODE
 
 EXPOSE 29500
