@@ -16,6 +16,18 @@ WORKDIR /app
 RUN uv venv --python 3.12
 ENV PATH="/app/.venv/bin:$PATH"
 
+# ensure new enough libstdc++ (required by PyG)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    software-properties-common && \
+    add-apt-repository ppa:ubuntu-toolchain-r/test && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+    libstdc++6 && \
+    rm -rf /var/lib/apt/lists/*
+# sanity check
+RUN strings /usr/lib/x86_64-linux-gnu/libstdc++.so.6 | grep GLIBCXX_3.4.32 || (echo "missing GLIBCXX_3.4.32" && exit 1)
+
 # Build tools
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -52,9 +64,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Install pyg-rocm-build wheels
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install /tmp/pyg-rocm-build/*whl
-# Install amdsmi
+# Install amdsmi (version must align with ROCm version)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install amdsmi
+    uv pip install amdsmi==6.3.0
 
 # Verify installations
 RUN python - <<'PYCODE'
