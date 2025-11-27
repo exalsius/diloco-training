@@ -47,6 +47,7 @@ jobs:
           push: true
           load: false
           tags: |
+            ${{ env.IMAGE_NAME }}:${{ matrix.image_tag }}-dev
             ${{ env.IMAGE_NAME }}:${{ matrix.image_tag }}-${{ github.sha }}
           # --- caching (per-image cache ref) ---
           cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:${{ matrix.image_tag }}-buildcache
