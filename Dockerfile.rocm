@@ -25,14 +25,14 @@ RUN apt-get update && \
 # Resolve dependencies into a venv with ROCm extras
 COPY uv.rocm.lock /app/uv.lock
 COPY pyproject.toml /app/pyproject.toml
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev --extra rocm
+# Disable caching for now, to work around corrupted cache
+RUN uv sync --frozen --no-install-project --no-dev --extra rocm
 
 # Copy application code
 COPY diloco_training/ /app/diloco_training/
 
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --extra rocm
+# Disable caching for now, to work around corrupted cache
+RUN uv sync --frozen --no-dev --extra rocm
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv add --frozen pip wheel setuptools ninja packaging
