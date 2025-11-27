@@ -52,6 +52,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Install pyg-rocm-build wheels
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install /tmp/pyg-rocm-build/*whl
+# Install amdsmi
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install amdsmi
 
 # Verify installations
 RUN python - <<'PYCODE'
