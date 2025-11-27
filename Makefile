@@ -34,7 +34,7 @@ lock-cuda:
 	echo "*"
 	echo "* Generating CUDA lock file (uv.lock)..."
 	echo "*"
-	uv lock --index https://download.pytorch.org/whl/cu126 --index-strategy unsafe-best-match
+	uv lock --index https://download.pytorch.org/whl/cu126-full --index-strategy unsafe-best-match
 .PHONY: lock-cuda
 
 lock-rocm:
