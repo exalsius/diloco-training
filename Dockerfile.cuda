@@ -25,7 +25,7 @@ COPY uv.lock pyproject.toml /app/
 
 # Handle (temporary?) hash mismatch issue of nvidia-nvtx-cu12
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv lock --upgrade-package nvidia-nvtx-cu12 --extra cuda
+    uv lock --upgrade-package nvidia-nvtx-cu12 --index https://download.pytorch.org/whl/cu126 --index-strategy unsafe-best-match
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev --extra cuda
