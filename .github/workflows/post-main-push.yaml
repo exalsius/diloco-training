@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+      - fix/diloco-amd-image
 permissions:
   contents: read
   packages: write
@@ -11,6 +12,15 @@ env:
 jobs:
   build-main:
     runs-on: exalsius-runner-default
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image_tag: cuda
+            dockerfile: Dockerfile.cuda
+
+          - image_tag: rocm
+            dockerfile: Dockerfile.rocm
     steps:
       - name: Free up disk space
         run: |
@@ -33,8 +43,12 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           push: true
           load: false
           tags: |
-            ${{ env.IMAGE_NAME }}:dev
-            ${{ env.IMAGE_NAME }}:dev-${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:${{ matrix.image_tag }}-dev
+            ${{ env.IMAGE_NAME }}:${{ matrix.image_tag }}-${{ github.sha }}
+          # --- caching (per-image cache ref) ---
+          cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:${{ matrix.image_tag }}-buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:${{ matrix.image_tag }}-buildcache,mode=max

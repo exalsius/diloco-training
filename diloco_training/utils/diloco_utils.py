@@ -227,7 +227,7 @@ def update_outer_optimizer(
     world_size,
     outer_optimizer,
     local_steps,
-    device="cuda",
+    backend="gloo",
     quantization=False,
     metrics_logger=None,
     sum_local_steps=10,
@@ -250,7 +250,7 @@ def update_outer_optimizer(
             local_steps / (sum_local_steps / world_size)
         )
         # ReduceOp.AVG with Gloo is not supported, so we use SUM instead and manually average later
-        op = dist.ReduceOp.AVG if device == "cuda" else dist.ReduceOp.SUM
+        op = dist.ReduceOp.SUM if backend == "gloo" else dist.ReduceOp.AVG
         if optim_method != "demo":
             nbytes = param.grad.nbytes
 
@@ -259,7 +259,7 @@ def update_outer_optimizer(
                 # TODO: This needs to be done in distributed_reduce_quantized
                 nbytes = nbytes // 8
                 param.grad = distributed_reduce_quantized(param.grad, op=op)
-                if device == "cpu":
+                if backend == "gloo":
                     # Manual averaging after SUM since dist.ReduceOp.AVG is not supported with gloo
                     # and we use dist.ReduceOp.SUM instead
                     param.grad.div_(world_size)
@@ -268,7 +268,7 @@ def update_outer_optimizer(
                 dist.all_reduce(param.grad, op=op, async_op=async_communication)
                 # Manual averaging after SUM since dist.ReduceOp.AVG is not supported with gloo
                 # and we use dist.ReduceOp.SUM instead
-                if device == "cpu":
+                if backend == "gloo":
                     param.grad.div_(world_size)
 
             # NCCL and gloo are running ring-all reduce

@@ -1,0 +1,84 @@
+# --- Builder with ROCm toolchain ---
+FROM rocm/dev-ubuntu-22.04:6.3 AS builder
+
+# uv
+COPY --from=ghcr.io/astral-sh/uv:0.8.9 /uv /bin/uv
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON=3.12 \
+    DEBIAN_FRONTEND=noninteractive \
+    TZ=Europe/Berlin \
+    ROCM_VERSION=6.3 \
+    HIP_PLATFORM=amd
+
+WORKDIR /app
+
+RUN uv venv --python 3.12
+ENV PATH="/app/.venv/bin:$PATH"
+
+# ensure new enough libstdc++ (required by PyG)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    software-properties-common && \
+    add-apt-repository ppa:ubuntu-toolchain-r/test && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+    libstdc++6 && \
+    rm -rf /var/lib/apt/lists/*
+# sanity check
+RUN strings /usr/lib/x86_64-linux-gnu/libstdc++.so.6 | grep GLIBCXX_3.4.32 || (echo "missing GLIBCXX_3.4.32" && exit 1)
+
+# Build tools
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential git unzip wget cmake ninja-build && \
+    rm -rf /var/lib/apt/lists/*
+
+# Resolve dependencies into a venv with ROCm extras
+COPY uv.rocm.lock /app/uv.lock
+COPY pyproject.toml /app/pyproject.toml
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-install-project --no-dev --extra rocm
+
+# Copy application code
+COPY diloco_training/ /app/diloco_training/
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --extra rocm
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv add --frozen pip wheel setuptools ninja packaging
+
+# Clone flash-attention and get pyg-rocm-build wheels
+WORKDIR /tmp
+RUN git clone https://github.com/ROCm/flash-attention.git
+RUN wget https://github.com/Looong01/pyg-rocm-build/releases/download/11/torch-2.7.1-rocm-6.3+6.4-py312-linux_x86_64.zip -O pyg-rocm-build.zip
+RUN unzip pyg-rocm-build.zip -d pyg-rocm-build
+
+WORKDIR /app
+# Build flash-attention
+ENV FLASH_ATTENTION_TRITON_AMD_ENABLE="TRUE"
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv add --frozen --no-build-isolation triton==3.3.1 && \
+    uv pip install --no-build-isolation /tmp/flash-attention
+# Install pyg-rocm-build wheels
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install /tmp/pyg-rocm-build/*whl
+# Install amdsmi (version must align with ROCm version)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install amdsmi==6.3.0
+
+# Verify installations
+RUN python - <<'PYCODE'
+import torch
+print("torch", torch.__version__)
+print("ROCm available:", torch.cuda.is_available())
+print("ROCm version:", torch.version.hip if hasattr(torch.version, "hip") else "N/A")
+import torch_geometric
+print("PyTorch Geometric version:", torch_geometric.__version__)
+import flash_attn
+print("flash_attn", flash_attn.__version__)
+PYCODE
+
+EXPOSE 29500
+

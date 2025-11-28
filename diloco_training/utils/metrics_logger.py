@@ -23,12 +23,14 @@ class MetricsLogger:
         global_rank: int,
         world_size: int,
         device: str,
+        gpu_type: str = "nvidia",
         wandb_logging: bool = True,
     ):
         self.local_rank = local_rank
         self.global_rank = global_rank
         self.world_size = world_size
         self.device = device
+        self.gpu_type = gpu_type
         self.wandb_logging = wandb_logging
 
         # Timing trackers
@@ -163,11 +165,17 @@ class MetricsLogger:
             if self.device == "cuda" and torch.cuda.is_available():
                 gpu_memory_allocated = torch.cuda.memory_allocated() / (1024 * 1024)
                 gpu_memory_reserved = torch.cuda.memory_reserved() / (1024 * 1024)
-                gpu_utilization = (
-                    torch.cuda.utilization()
-                    if hasattr(torch.cuda, "utilization")
-                    else 0
-                )
+                
+                if self.gpu_type == "nvidia":
+                    gpu_utilization = (
+                        torch.cuda.utilization()
+                        if hasattr(torch.cuda, "utilization")
+                        else 0
+                    )
+                else:
+                    # For AMD, torch.cuda.utilization might not be available or reliable
+                    # We can skip it or implement a different way if needed
+                    gpu_utilization = 0
 
                 metrics.update(
                     {
@@ -360,14 +368,27 @@ def collect_environment_metadata(args) -> Dict[str, Any]:
 
     # GPU information if available
     if torch.cuda.is_available():
-        metadata.update(
-            {
-                "system/gpu_count": torch.cuda.device_count(),
-                "system/gpu_name": torch.cuda.get_device_name(0),
-                "pytorch/cuda_version": torch.version.cuda,
-                "pytorch/cudnn_version": torch.backends.cudnn.version(),
-            }
-        )
+        gpu_info = {
+            "system/gpu_count": torch.cuda.device_count(),
+            "system/gpu_name": torch.cuda.get_device_name(0),
+        }
+        
+        # Check for CUDA version
+        if hasattr(torch.version, "cuda") and torch.version.cuda:
+            gpu_info["pytorch/cuda_version"] = torch.version.cuda
+            
+        # Check for HIP/ROCm version
+        if hasattr(torch.version, "hip") and torch.version.hip:
+            gpu_info["pytorch/hip_version"] = torch.version.hip
+
+        # Check for cuDNN version
+        if hasattr(torch.backends, "cudnn") and hasattr(torch.backends.cudnn, "version"):
+            try:
+                gpu_info["pytorch/cudnn_version"] = torch.backends.cudnn.version()
+            except Exception:
+                pass
+                
+        metadata.update(gpu_info)
 
     # Git information if available
     try:
