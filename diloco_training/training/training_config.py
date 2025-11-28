@@ -66,6 +66,10 @@ class TrainingConfig(BaseSettings):
     gpu_type: Literal["nvidia", "amd"] = Field(
         default="nvidia", description="GPU type (nvidia or amd)"
     )
+    pgroup_backend: Optional[str] = Field(
+        default=None,
+        description="PyTorch distributed backend (nccl, gloo, ucc, etc.). If None, auto-selects based on device.",
+    )
 
     # Dataset configuration
     dataset_cache_dir: Optional[Path] = Field(
@@ -180,6 +184,13 @@ class TrainingConfig(BaseSettings):
             raise ValueError(
                 f"max_batch_size ({self.max_batch_size}) must be >= min_batch_size ({self.min_batch_size})"
             )
+        return self
+
+    @model_validator(mode="after")
+    def set_pgroup_backend_default(self):
+        """Set pgroup_backend default based on device if not specified."""
+        if self.pgroup_backend is None:
+            self.pgroup_backend = "nccl" if self.device == "cuda" else "gloo"
         return self
 
     @classmethod

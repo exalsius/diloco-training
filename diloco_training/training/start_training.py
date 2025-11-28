@@ -35,7 +35,7 @@ def init_and_start_training(config: TrainingConfig):
     world_size = int(os.environ["WORLD_SIZE"])
     wandb_user_key = os.environ.get("WANDB_USER_KEY", None)
     hf_token = os.environ.get("HUGGINGFACE_TOKEN", None)
-    pgroup_backend = "nccl" if config.device == "cuda" else "gloo"
+    pgroup_backend = config.pgroup_backend
     os.environ["HF_HUB_HTTP_TIMEOUT"] = "60"
     os.environ["HF_HUB_DOWNLOAD_RETRY"] = "100"
 
@@ -183,6 +183,12 @@ def load_config_from_args() -> TrainingConfig:
     )
     parser.add_argument(
         "--device", type=str, default="cuda", choices=["cuda", "cpu"], help="Device."
+    )
+    parser.add_argument(
+        "--pgroup_backend",
+        type=str,
+        default=None,
+        help="PyTorch distributed backend (nccl, gloo, ucc). Auto-selects based on device if not specified.",
     )
     parser.add_argument(
         "--dataset_cache_dir",
