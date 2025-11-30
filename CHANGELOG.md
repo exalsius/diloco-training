@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/exalsius/diloco-training/compare/v0.1.0...v0.2.0) (2025-11-30)
+
+
+### Features
+
+* adjust dockerfiles to support heterogeneous amd/nvidia training ([#58](https://github.com/exalsius/diloco-training/issues/58)) ([3cd838b](https://github.com/exalsius/diloco-training/commit/3cd838b44b755173625f863aab758f9f7736cd43))
+
 ## 0.1.0 (2025-11-12)
 
 
