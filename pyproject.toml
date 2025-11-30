@@ -3,7 +3,7 @@ name = "diloco-training"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = "==3.12.*"
 dependencies = [
     "einops>=0.8.1",
     "datasets==3.4.0",
@@ -15,21 +15,29 @@ dependencies = [
     "transformers>=4.49.0",
     "wandb>=0.19.7",
     "matplotlib>=3.10.1",
-    "torch>=2.5.0",
-    "torchvision>=0.20.0",
-    "torchaudio>=2.5.0",
     "seaborn>=0.13.2",
     "setuptools>=76.1.0",
     "huggingface-hub>=0.29.3",
-    "pynvml>=12.0.0",
     "pydantic-settings>=2.10.1",
     "torchdata>=0.11.0",
-    "torch-geometric>=2.6.1",
-    "pyg-lib>=0.4.0",
     "python-etcd>=0.4.5",
 ]
 
 [project.optional-dependencies]
+cuda = [
+    "torch==2.7.1",
+    "torchvision",
+    "torchaudio",
+    "torch-geometric>=2.6.1",
+    "pyg-lib>=0.4.0",
+    "pynvml>=12.0.0",
+]
+rocm = [
+    "torch==2.7.1",
+    "torchvision",
+    "torchaudio",
+    "psutil"
+]
 dev = [
     "black>=25.1.0",
     "isort>=6.0.1",
@@ -50,10 +58,18 @@ packages = ["diloco_training"]
 
 [tool.uv]
 no-build-isolation-package = ['flash-attn']
+
+# PyTorch Geometric find-links for CUDA builds
+# For ROCm builds, use uv.rocm.lock with appropriate index-url in Dockerfile
 find-links = [
-    "https://data.pyg.org/whl/torch-2.5.0+cpu.html",
-    "https://data.pyg.org/whl/torch-2.5.0+cu121.html",
+    "https://data.pyg.org/whl/torch-2.7.1+cu126.html",
 ]
+
+# PyTorch CUDA index for CUDA packages (use with "full" suffix https://github.com/astral-sh/uv/issues/16784)
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126-full"
+explicit = true
 
 [tool.pytest.ini_options]
 testpaths = "tests"

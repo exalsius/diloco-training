@@ -34,7 +34,7 @@ class DistributedTrainer:
         self, config: TrainingConfig, local_rank: int, global_rank: int, world_size: int
     ):
         self.config = config
-
+        self.pgroup_backend = config.pgroup_backend
         # srnbckr: this if for backwards compatability: it would be better to refactor the code
         # to not use "args" anymore.
         self.args = self.config
@@ -140,6 +140,7 @@ class DistributedTrainer:
             global_rank=self.global_rank,
             world_size=self.world_size,
             device=self.device,
+            gpu_type=self.config.gpu_type,
             wandb_logging=self.config.wandb_logging,
         )
 
@@ -463,6 +464,62 @@ class DistributedTrainer:
                         )
 
                 if (
+                    self.count_inner_optimizer_steps % self.local_steps == 0
+                    and not self.heterogeneous
+                ):
+                    self.count_inner_optimizer_steps = 0
+
+                    # Start timing for outer optimizer sync
+                    self.metrics_logger.start_timer("outer_sync")
+                    logger.info(
+                        f"Global rank {self.global_rank} - Local rank {self.local_rank} - Syncing outer optimizer at step {real_step}"
+                    )
+                    main_param = [
+                        param
+                        for group in self.inner_optimizer.param_groups
+                        for param in group["params"]
+                    ]
+                    bytes_sent = update_outer_optimizer(
+                        self.params_offloaded,
+                        main_param,
+                        self.optim_method,
+                        self.world_size,
+                        self.outer_optimizer,
+                        self.local_steps,
+                        backend=self.pgroup_backend,
+                        quantization=self.quantization,
+                        metrics_logger=self.metrics_logger,
+                        sum_local_steps=self.sum_local_steps,
+                        async_communication=self.config.async_communication,
+                    )
+                    self.params_offloaded = get_offloaded_param(
+                        self.outer_optimizer, device=self.device
+                    )
+                    sync_time = self.metrics_logger.end_timer("outer_sync")
+
+                    # Update reference parameters after outer optimizer sync
+                    self.reference_params = [
+                        param.clone().detach() for param in self.model.parameters()
+                    ]
+
+                    # Update the total bytes sent and received
+                    self.total_bytes_sent += bytes_sent
+                    self.sync_count += 1
+
+                    # Log outer sync metrics
+                    self.metrics_logger.log_training_metrics(
+                        step=real_step,
+                        loss=self.loss_batch.item(),
+                        loss_type="outer",
+                        sync_time=sync_time,
+                        bytes_sent_mb=bytes_sent / (1024 * 1024),
+                    )
+                    logger.info(
+                        f"Global rank {self.global_rank} - Local rank {self.local_rank} - Outer optimizer synced at step {real_step}"
+                    )
+                    self.count_outer_optimizer_steps += 1
+
+                if (
                     self.count_outer_optimizer_steps % self.checkpoint_interval == 0
                     and not self.heterogeneous
                 ):
@@ -522,7 +579,7 @@ class DistributedTrainer:
                     self.world_size,
                     self.outer_optimizer,
                     self.local_steps,
-                    device=self.device,
+                    backend=self.pgroup_backend,
                     metrics_logger=self.metrics_logger,
                     sum_local_steps=self.sum_local_steps,
                     async_communication=self.config.async_communication,
@@ -733,7 +790,7 @@ class DistributedTrainer:
                         self.world_size,
                         self.outer_optimizer_d,
                         self.local_steps,
-                        device=self.device,
+                        backend=self.pgroup_backend,
                         quantization=self.quantization,
                         metrics_logger=self.metrics_logger,
                         sum_local_steps=self.sum_local_steps,
@@ -755,7 +812,7 @@ class DistributedTrainer:
                         self.world_size,
                         self.outer_optimizer_g,
                         self.local_steps,
-                        device=self.device,
+                        backend=self.pgroup_backend,
                         quantization=self.quantization,
                         metrics_logger=self.metrics_logger,
                         sum_local_steps=self.sum_local_steps,
@@ -845,7 +902,7 @@ class DistributedTrainer:
                 self.world_size,
                 self.outer_optimizer_d,
                 self.local_steps,
-                device=self.device,
+                backend=self.pgroup_backend,
                 quantization=self.quantization,
                 sum_local_steps=self.sum_local_steps,
             )
@@ -866,7 +923,7 @@ class DistributedTrainer:
                 self.world_size,
                 self.outer_optimizer_g,
                 self.local_steps,
-                device=self.device,
+                backend=self.pgroup_backend,
                 quantization=self.quantization,
             )
             self.params_offloaded_g = get_offloaded_param(
@@ -887,7 +944,7 @@ class DistributedTrainer:
                 self.world_size,
                 self.outer_optimizer,
                 self.local_steps,
-                device=self.device,
+                backend=self.pgroup_backend,
                 quantization=self.quantization,
             )
             self.params_offloaded = get_offloaded_param(

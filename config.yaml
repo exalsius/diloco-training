@@ -1,6 +1,6 @@
 # Model and Dataset Configuration
-model: "gpt-neo-x"
-dataset: "c4"
+model: "gcn"
+dataset: "ogbn_arxiv"
 
 # Training Hyperparameters
 local_steps: 10
@@ -22,6 +22,10 @@ checkpoint_interval: 5
 
 # Device Configuration
 device: "cuda"
+gpu_type: "amd"
+
+# Distributed Backend Configuration (optional)
+# pgroup_backend: "nccl"  # Options: nccl, gloo, ucc (auto-selects if not specified)
 
 # WandB Configuration
 wandb_project_name: "test"
