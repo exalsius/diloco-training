@@ -1,6 +1,3 @@
-from pathlib import Path
-from typing import Optional
-
 from ogb.nodeproppred import PygNodePropPredDataset
 from torch.serialization import safe_globals
 from torch.utils.data import IterableDataset
@@ -64,7 +61,7 @@ def get_ogbn_arxiv(
     local_rank,
     per_device_train_batch_size,
     split="train",
-    cache_dir= "/workspace/datasets/obgn_arxiv",
+    cache_dir="/workspace/datasets/obgn_arxiv",
 ):
     """
     Loads ogbn-arxiv dataset returning StatefulDataLoader for train & val.
@@ -80,7 +77,7 @@ def get_ogbn_arxiv(
         Tuple of train and validation dataloaders
     """
     # Use cache_dir if provided, otherwise use None for default
-    root_dir = "/workspace/datasets/obgn_arxiv"#str(cache_dir) if cache_dir else None
+    root_dir = "/workspace/datasets/obgn_arxiv"  # str(cache_dir) if cache_dir else None
     print(f"root: {root_dir}")
     with safe_globals([Data, HeteroData, DataEdgeAttr, DataTensorAttr, GlobalStorage]):
         dataset = PygNodePropPredDataset(

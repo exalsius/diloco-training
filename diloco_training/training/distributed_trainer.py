@@ -519,7 +519,6 @@ class DistributedTrainer:
                     )
                     self.count_outer_optimizer_steps += 1
 
-
                 if (
                     self.count_outer_optimizer_steps % self.checkpoint_interval == 0
                     and not self.heterogeneous
