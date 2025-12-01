@@ -3,7 +3,7 @@ on:
   push:
     branches:
       - main
-      - ci/docker-caches
+      - fix/synclogging
 permissions:
   contents: read
   packages: write
