@@ -23,19 +23,19 @@ RUN apt-get update && \
 # Resolve deps into a venv with CUDA extras
 COPY uv.lock pyproject.toml /app/
 
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=bind,from=uvcache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev --extra cuda
 
 # Copy application code
 COPY diloco_training/ /app/diloco_training/
 
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=bind,from=uvcache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --extra cuda
 
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=bind,from=uvcache,target=/root/.cache/uv \
     uv add --frozen pip wheel setuptools ninja packaging
 
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=bind,from=uvcache,target=/root/.cache/uv \
     uv add --no-build-isolation flash-attn
 
 # Verify installations

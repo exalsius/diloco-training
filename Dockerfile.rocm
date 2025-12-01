@@ -37,16 +37,16 @@ RUN apt-get update && \
 # Resolve dependencies into a venv with ROCm extras
 COPY uv.rocm.lock /app/uv.lock
 COPY pyproject.toml /app/pyproject.toml
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=bind,from=uvcache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev --extra rocm
 
 # Copy application code
 COPY diloco_training/ /app/diloco_training/
 
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=bind,from=uvcache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --extra rocm
 
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=bind,from=uvcache,target=/root/.cache/uv \
     uv add --frozen pip wheel setuptools ninja packaging
 
 # Clone flash-attention and get pyg-rocm-build wheels
@@ -58,14 +58,14 @@ RUN unzip pyg-rocm-build.zip -d pyg-rocm-build
 WORKDIR /app
 # Build flash-attention
 ENV FLASH_ATTENTION_TRITON_AMD_ENABLE="TRUE"
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=bind,from=uvcache,target=/root/.cache/uv \
     uv add --frozen --no-build-isolation triton==3.3.1 && \
     uv pip install --no-build-isolation /tmp/flash-attention
 # Install pyg-rocm-build wheels
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=bind,from=uvcache,target=/root/.cache/uv \
     uv pip install /tmp/pyg-rocm-build/*whl
 # Install amdsmi (version must align with ROCm version)
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=bind,from=uvcache,target=/root/.cache/uv \
     uv pip install amdsmi==6.3.0
 
 # Verify installations
