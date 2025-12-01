@@ -11,6 +11,9 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
+# Copy UV cache from GitHub Actions if available
+COPY --from=uvcache . /tmp/uv-seed-cache/
+
 RUN uv venv --python 3.12
 ENV PATH="/app/.venv/bin:$PATH"
 
@@ -24,18 +27,30 @@ RUN apt-get update && \
 COPY uv.lock pyproject.toml /app/
 
 RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ -d /tmp/uv-seed-cache ] && [ -z "$(ls -A /root/.cache/uv 2>/dev/null)" ]; then \
+      cp -r /tmp/uv-seed-cache/* /root/.cache/uv/ 2>/dev/null || true; \
+    fi && \
     uv sync --frozen --no-install-project --no-dev --extra cuda
 
 # Copy application code
 COPY diloco_training/ /app/diloco_training/
 
 RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ -d /tmp/uv-seed-cache ] && [ -z "$(ls -A /root/.cache/uv 2>/dev/null)" ]; then \
+      cp -r /tmp/uv-seed-cache/* /root/.cache/uv/ 2>/dev/null || true; \
+    fi && \
     uv sync --frozen --no-dev --extra cuda
 
 RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ -d /tmp/uv-seed-cache ] && [ -z "$(ls -A /root/.cache/uv 2>/dev/null)" ]; then \
+      cp -r /tmp/uv-seed-cache/* /root/.cache/uv/ 2>/dev/null || true; \
+    fi && \
     uv add --frozen pip wheel setuptools ninja packaging
 
 RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ -d /tmp/uv-seed-cache ] && [ -z "$(ls -A /root/.cache/uv 2>/dev/null)" ]; then \
+      cp -r /tmp/uv-seed-cache/* /root/.cache/uv/ 2>/dev/null || true; \
+    fi && \
     uv add --no-build-isolation flash-attn
 
 # Verify installations

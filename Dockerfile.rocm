@@ -13,6 +13,9 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
+# Copy UV cache from GitHub Actions if available
+COPY --from=uvcache . /tmp/uv-seed-cache/
+
 RUN uv venv --python 3.12
 ENV PATH="/app/.venv/bin:$PATH"
 
@@ -38,15 +41,24 @@ RUN apt-get update && \
 COPY uv.rocm.lock /app/uv.lock
 COPY pyproject.toml /app/pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ -d /tmp/uv-seed-cache ] && [ -z "$(ls -A /root/.cache/uv 2>/dev/null)" ]; then \
+      cp -r /tmp/uv-seed-cache/* /root/.cache/uv/ 2>/dev/null || true; \
+    fi && \
     uv sync --frozen --no-install-project --no-dev --extra rocm
 
 # Copy application code
 COPY diloco_training/ /app/diloco_training/
 
 RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ -d /tmp/uv-seed-cache ] && [ -z "$(ls -A /root/.cache/uv 2>/dev/null)" ]; then \
+      cp -r /tmp/uv-seed-cache/* /root/.cache/uv/ 2>/dev/null || true; \
+    fi && \
     uv sync --frozen --no-dev --extra rocm
 
 RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ -d /tmp/uv-seed-cache ] && [ -z "$(ls -A /root/.cache/uv 2>/dev/null)" ]; then \
+      cp -r /tmp/uv-seed-cache/* /root/.cache/uv/ 2>/dev/null || true; \
+    fi && \
     uv add --frozen pip wheel setuptools ninja packaging
 
 # Clone flash-attention and get pyg-rocm-build wheels
@@ -59,13 +71,22 @@ WORKDIR /app
 # Build flash-attention
 ENV FLASH_ATTENTION_TRITON_AMD_ENABLE="TRUE"
 RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ -d /tmp/uv-seed-cache ] && [ -z "$(ls -A /root/.cache/uv 2>/dev/null)" ]; then \
+      cp -r /tmp/uv-seed-cache/* /root/.cache/uv/ 2>/dev/null || true; \
+    fi && \
     uv add --frozen --no-build-isolation triton==3.3.1 && \
     uv pip install --no-build-isolation /tmp/flash-attention
 # Install pyg-rocm-build wheels
 RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ -d /tmp/uv-seed-cache ] && [ -z "$(ls -A /root/.cache/uv 2>/dev/null)" ]; then \
+      cp -r /tmp/uv-seed-cache/* /root/.cache/uv/ 2>/dev/null || true; \
+    fi && \
     uv pip install /tmp/pyg-rocm-build/*whl
 # Install amdsmi (version must align with ROCm version)
 RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ -d /tmp/uv-seed-cache ] && [ -z "$(ls -A /root/.cache/uv 2>/dev/null)" ]; then \
+      cp -r /tmp/uv-seed-cache/* /root/.cache/uv/ 2>/dev/null || true; \
+    fi && \
     uv pip install amdsmi==6.3.0
 
 # Verify installations
