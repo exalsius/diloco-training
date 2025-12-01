@@ -6,6 +6,7 @@ from pathlib import Path
 import torch
 import torch.distributed as dist
 from torch.amp import autocast
+from tqdm import tqdm
 
 import wandb
 from diloco_training.utils.exalsius_logger import get_logger
@@ -244,7 +245,23 @@ def update_outer_optimizer(
         wait_time = reduce_processing_start - reduce_start_time
         metrics_logger.log_reduce_wait_time(wait_time)
 
-    for param_offloaded, param in zip(params_offloaded, main_param):
+    # Get total number of parameters for progress tracking
+    total_params = len(params_offloaded)
+    logger.info(f"Starting outer optimizer sync: {total_params} parameters to process")
+
+    # Phase 1: Computing gradients and performing all_reduce
+    logger.info(
+        "Phase 1/3: Computing parameter gradients and performing all_reduce communication..."
+    )
+    grad_compute_start = time.time()
+
+    for param_offloaded, param in tqdm(
+        zip(params_offloaded, main_param),
+        total=total_params,
+        desc="Syncing parameters",
+        disable=False,
+        unit="param",
+    ):
         param_offloaded_on_device = param_offloaded.data.to(param.device)
         param.grad = (param_offloaded_on_device - param.data) * (
             local_steps / (sum_local_steps / world_size)
@@ -279,9 +296,28 @@ def update_outer_optimizer(
             else:
                 bytes_sent += nbytes
         param.data = param_offloaded_on_device
+
+    grad_compute_time = time.time() - grad_compute_start
+    logger.info(
+        f"Phase 1 completed in {grad_compute_time:.2f}s - All parameters synced"
+    )
+
+    # Phase 2: Handle quantization if needed
     if quantization is True and optim_method == "demo":
+        logger.info("Phase 2/3: Setting quantization for DeMo optimizer...")
         outer_optimizer.quantization = True
+    else:
+        logger.info("Phase 2/3: Skipping quantization setup")
+
+    # Phase 3: Running outer optimizer step
+    logger.info("Phase 3/3: Running outer optimizer step...")
+    optimizer_step_start = time.time()
     outer_optimizer.step()
+    optimizer_step_time = time.time() - optimizer_step_start
+    logger.info(
+        f"Phase 3 completed in {optimizer_step_time:.2f}s - Optimizer step finished"
+    )
+
     if optim_method == "demo":
         if world_size > 1:
             bytes_sent = 2 * outer_optimizer.nbytes * (world_size - 1) / world_size
@@ -292,6 +328,13 @@ def update_outer_optimizer(
     # Log reduce processing time
     reduce_end_time = time.time()
     processing_time = reduce_end_time - reduce_processing_start
+    total_time = reduce_end_time - reduce_start_time
+
+    logger.info(
+        f"Outer optimizer sync completed - Total time: {total_time:.2f}s, "
+        f"Data transferred: {bytes_sent / (1024**2):.2f} MB"
+    )
+
     if metrics_logger:
         metrics_logger.log_reduce_processing_time(processing_time)
         metrics_logger.log_communication_metrics(bytes_sent, "outer_sync")
