@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 from datetime import timedelta
 from pathlib import Path
@@ -261,6 +262,12 @@ def update_outer_optimizer(
         desc="Syncing parameters",
         disable=False,
         unit="param",
+        ncols=80,
+        mininterval=5.0,
+        maxinterval=10.0,
+        file=sys.stdout,
+        position=0,
+        leave=True,
     ):
         param_offloaded_on_device = param_offloaded.data.to(param.device)
         param.grad = (param_offloaded_on_device - param.data) * (
@@ -282,11 +289,24 @@ def update_outer_optimizer(
                     param.grad.div_(world_size)
 
             else:
-                dist.all_reduce(param.grad, op=op, async_op=async_communication)
-                # Manual averaging after SUM since dist.ReduceOp.AVG is not supported with gloo
-                # and we use dist.ReduceOp.SUM instead
+
                 if backend == "gloo":
+                    logger.debug(
+                        f"Using gloo backend with CPU offload - gradient shape: {param.grad.shape}, "
+                        f"size: {param.grad.nbytes / (1024**2):.4f} MB, async: {async_communication}"
+                    )
+                    # Create CPU copy for all_reduce
+                    grad_cpu = param.grad.cpu()
+                    dist.all_reduce(grad_cpu, op=op, async_op=async_communication)
+                    # Copy result back to original CUDA gradient
+                    param.grad.copy_(grad_cpu)
+                    # Manual averaging after SUM
                     param.grad.div_(world_size)
+                    logger.debug(
+                        f"Gloo all_reduce completed - applied manual averaging over {world_size} workers"
+                    )
+                else:
+                    dist.all_reduce(param.grad, op=op, async_op=async_communication)
 
             # NCCL and gloo are running ring-all reduce
             # In ring all-reduce, each node sends/receives 2(n-1)/n times the data

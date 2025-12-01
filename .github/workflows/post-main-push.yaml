@@ -3,7 +3,7 @@ on:
   push:
     branches:
       - main
-      - ci/docker-caches
+      - fix/synclogging
 permissions:
   contents: read
   packages: write
@@ -18,11 +18,9 @@ jobs:
         include:
           - image_tag: cuda
             dockerfile: Dockerfile.cuda
-            lockfile: uv.lock
 
           - image_tag: rocm
             dockerfile: Dockerfile.rocm
-            lockfile: uv.rocm.lock
     steps:
       - name: Free up disk space
         run: |
@@ -33,15 +31,6 @@ jobs:
           sudo apt-get clean
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Setup UV cache directory
-        run: mkdir -p /tmp/uv-cache-${{ matrix.image_tag }}
-      - name: Cache UV packages
-        uses: actions/cache@v4
-        with:
-          path: /tmp/uv-cache-${{ matrix.image_tag }}
-          key: uv-${{ matrix.image_tag }}-${{ hashFiles(format('{0}', matrix.lockfile)) }}
-          restore-keys: |
-            uv-${{ matrix.image_tag }}-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
       - name: Log in to GHCR
@@ -60,8 +49,6 @@ jobs:
           tags: |
             ${{ env.IMAGE_NAME }}:${{ matrix.image_tag }}-dev
             ${{ env.IMAGE_NAME }}:${{ matrix.image_tag }}-${{ github.sha }}
-          build-contexts: |
-            uvcache=/tmp/uv-cache-${{ matrix.image_tag }}
           # --- caching (per-image cache ref) ---
           cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:${{ matrix.image_tag }}-buildcache
           cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:${{ matrix.image_tag }}-buildcache,mode=max
