@@ -290,7 +290,9 @@ def update_outer_optimizer(
                     param.grad.div_(world_size)
 
             else:
+                param.grad = param.grad.cpu()
                 dist.all_reduce(param.grad, op=op, async_op=async_communication)
+                param.grad = param.grad.to("cuda")
                 # Manual averaging after SUM since dist.ReduceOp.AVG is not supported with gloo
                 # and we use dist.ReduceOp.SUM instead
                 if backend == "gloo":
