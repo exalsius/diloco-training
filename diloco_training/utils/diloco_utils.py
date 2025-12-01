@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 from datetime import timedelta
 from pathlib import Path
@@ -261,6 +262,13 @@ def update_outer_optimizer(
         desc="Syncing parameters",
         disable=False,
         unit="param",
+        ncols=80,  # Fixed width for consistent logging
+        mininterval=5.0,  # Update every 5 seconds minimum
+        maxinterval=10.0,  # Force update at least every 10 seconds
+        file=sys.stdout,  # Write to stdout (captured by loggers)
+        dynamic_ncols=False,  # Disable dynamic width
+        position=0,  # Single progress bar
+        leave=True,  # Keep the final bar visible
     ):
         param_offloaded_on_device = param_offloaded.data.to(param.device)
         param.grad = (param_offloaded_on_device - param.data) * (
