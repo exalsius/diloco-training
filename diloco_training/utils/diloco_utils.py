@@ -262,13 +262,12 @@ def update_outer_optimizer(
         desc="Syncing parameters",
         disable=False,
         unit="param",
-        ncols=80,  # Fixed width for consistent logging
-        mininterval=5.0,  # Update every 5 seconds minimum
-        maxinterval=10.0,  # Force update at least every 10 seconds
-        file=sys.stdout,  # Write to stdout (captured by loggers)
-        dynamic_ncols=False,  # Disable dynamic width
-        position=0,  # Single progress bar
-        leave=True,  # Keep the final bar visible
+        ncols=80,
+        mininterval=5.0,
+        maxinterval=10.0,
+        file=sys.stdout,
+        position=0,
+        leave=True,
     ):
         param_offloaded_on_device = param_offloaded.data.to(param.device)
         param.grad = (param_offloaded_on_device - param.data) * (
@@ -292,6 +291,10 @@ def update_outer_optimizer(
             else:
 
                 if backend == "gloo":
+                    logger.debug(
+                        f"Using gloo backend with CPU offload - gradient shape: {param.grad.shape}, "
+                        f"size: {param.grad.nbytes / (1024**2):.4f} MB, async: {async_communication}"
+                    )
                     # Create CPU copy for all_reduce
                     grad_cpu = param.grad.cpu()
                     dist.all_reduce(grad_cpu, op=op, async_op=async_communication)
@@ -299,6 +302,9 @@ def update_outer_optimizer(
                     param.grad.copy_(grad_cpu)
                     # Manual averaging after SUM
                     param.grad.div_(world_size)
+                    logger.debug(
+                        f"Gloo all_reduce completed - applied manual averaging over {world_size} workers"
+                    )
                 else:
                     dist.all_reduce(param.grad, op=op, async_op=async_communication)
 
