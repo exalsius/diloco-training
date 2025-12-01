@@ -291,19 +291,16 @@ def update_outer_optimizer(
 
             else:
 
-                # TODO: make this nicer if it works
                 if backend == "gloo":
-                    param.grad = param.grad.cpu()
-                dist.all_reduce(param.grad, op=op, async_op=async_communication)
-
-                # TODO sasho bugfix
-                if backend == "gloo":
-                    param.grad = param.grad.to("cuda")
-
-                # Manual averaging after SUM since dist.ReduceOp.AVG is not supported with gloo
-                # and we use dist.ReduceOp.SUM instead
-                if backend == "gloo":
+                    # Create CPU copy for all_reduce
+                    grad_cpu = param.grad.cpu()
+                    dist.all_reduce(grad_cpu, op=op, async_op=async_communication)
+                    # Copy result back to original CUDA gradient
+                    param.grad.copy_(grad_cpu)
+                    # Manual averaging after SUM
                     param.grad.div_(world_size)
+                else:
+                    dist.all_reduce(param.grad, op=op, async_op=async_communication)
 
             # NCCL and gloo are running ring-all reduce
             # In ring all-reduce, each node sends/receives 2(n-1)/n times the data
