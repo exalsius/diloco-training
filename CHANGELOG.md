@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/exalsius/diloco-training/compare/v0.2.0...v0.2.1) (2025-12-01)
+
+
+### Bug Fixes
+
+* add incremental log updates about parameter synchronization ([#63](https://github.com/exalsius/diloco-training/issues/63)) ([8b04ecd](https://github.com/exalsius/diloco-training/commit/8b04ecdd5f5205f48ef80c8e0239a10f5160c223))
+* introduce detailed logging for diloco outer optimizer synchronization ([#60](https://github.com/exalsius/diloco-training/issues/60)) ([1b920b0](https://github.com/exalsius/diloco-training/commit/1b920b0fd9442b916ef839cb2ba89f42267993fa))
+
 ## [0.2.0](https://github.com/exalsius/diloco-training/compare/v0.1.0...v0.2.0) (2025-11-30)
 
 
