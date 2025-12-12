@@ -22,6 +22,13 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 
+from diloco_training.utils.hf_download import (
+    DEFAULT_HF_MAX_RETRIES,
+    DEFAULT_HF_TIMEOUT,
+    create_download_config,
+    set_hf_timeout,
+)
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -56,6 +63,8 @@ class DatasetConfig:
     )
     use_fast_tokenizer: bool = True
     ignore_verifications: bool = True
+    download_timeout: int = DEFAULT_HF_TIMEOUT
+    max_retries: int = DEFAULT_HF_MAX_RETRIES
 
 
 def create_tokenizer(
@@ -72,6 +81,9 @@ def create_tokenizer(
     Returns:
         Configured tokenizer
     """
+    # Set timeout for HuggingFace Hub downloads
+    set_hf_timeout(config.download_timeout)
+
     tokenizer = AutoTokenizer.from_pretrained(
         config.model_name, use_fast=config.use_fast_tokenizer, cache_dir=cache_dir
     )
@@ -99,6 +111,11 @@ def load_and_process_dataset(
     Returns:
         Tokenized dataset
     """
+    # Create robust download configuration
+    download_config = create_download_config(
+        config.download_timeout, config.max_retries
+    )
+
     try:
         dataset = load_dataset(
             config.dataset_name,
@@ -107,6 +124,7 @@ def load_and_process_dataset(
             split=config.split,
             trust_remote_code=True,
             cache_dir=cache_dir,
+            download_config=download_config,
         )
     except Exception as e:
         logger.error(f"Failed to load dataset: {e}")

@@ -13,6 +13,8 @@ from datasets import load_dataset
 from torch.utils.data import IterableDataset
 from torchdata.stateful_dataloader import StatefulDataLoader
 
+from diloco_training.utils.hf_download import create_download_config, set_hf_timeout
+
 
 class StreamingImageNetDataset(IterableDataset):
     """Streaming ImageNet dataset for distributed training."""
@@ -35,6 +37,11 @@ class StreamingImageNetDataset(IterableDataset):
             split: Dataset split to use ('train' or 'validation')
             cache_dir: Directory for caching datasets. If None, uses HuggingFace default
         """
+        # Create robust download configuration
+        download_config = create_download_config()
+        # Set timeout for HuggingFace Hub downloads
+        set_hf_timeout()
+
         self.split = split
         if split == "validation":
             self.dataset = load_dataset(
@@ -42,6 +49,7 @@ class StreamingImageNetDataset(IterableDataset):
                 split=split,
                 cache_dir=cache_dir,
                 trust_remote_code=True,
+                download_config=download_config,
             )
         else:
             # For training, we don't shuffle
@@ -50,6 +58,7 @@ class StreamingImageNetDataset(IterableDataset):
                 split=split,
                 cache_dir=cache_dir,
                 trust_remote_code=True,
+                download_config=download_config,
             )
         self.rank = rank
         self.world_size = world_size

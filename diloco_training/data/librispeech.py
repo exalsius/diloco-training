@@ -7,6 +7,8 @@ from torch.utils.data import IterableDataset
 from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import Wav2Vec2Processor
 
+from diloco_training.utils.hf_download import create_download_config, set_hf_timeout
+
 
 class StreamingLibriSpeechDataset(IterableDataset):
     """Streaming LibriSpeech dataset for distributed training."""
@@ -29,14 +31,27 @@ class StreamingLibriSpeechDataset(IterableDataset):
             split: Dataset split to use
             cache_dir: Directory for caching datasets. If None, uses HuggingFace default
         """
+        # Create robust download configuration
+        download_config = create_download_config()
+        # Set timeout for HuggingFace Hub downloads
+        set_hf_timeout()
+
         if split == "validation.clean":
             self.dataset = load_dataset(
-                dataset_name, split=split, trust_remote_code=True, cache_dir=cache_dir
+                dataset_name,
+                split=split,
+                trust_remote_code=True,
+                cache_dir=cache_dir,
+                download_config=download_config,
             )
         else:
             # For training, we don't shuffle
             self.dataset = load_dataset(
-                dataset_name, split=split, trust_remote_code=True, cache_dir=cache_dir
+                dataset_name,
+                split=split,
+                trust_remote_code=True,
+                cache_dir=cache_dir,
+                download_config=download_config,
             )
         self.rank = rank
         self.world_size = world_size
@@ -102,6 +117,9 @@ def get_librispeech(
     Returns:
         DataLoader for the dataset
     """
+    # Set timeout for HuggingFace Hub downloads
+    set_hf_timeout()
+
     if split == "train":
         split = "train.clean.100"
     dataset = StreamingLibriSpeechDataset(
