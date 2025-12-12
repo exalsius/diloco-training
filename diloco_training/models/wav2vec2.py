@@ -4,6 +4,7 @@ from typing import Optional
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
 from diloco_training.data.librispeech import get_librispeech
+from diloco_training.utils.hf_download import set_hf_timeout
 
 
 def get_wav2vec2(
@@ -26,6 +27,9 @@ def get_wav2vec2(
     Returns:
         Configured Wav2Vec2Model instance
     """
+    # Set timeout for HuggingFace Hub downloads
+    set_hf_timeout()
+
     # Load model config (same as pretrained one)
     processor = Wav2Vec2Processor.from_pretrained(
         "facebook/wav2vec2-base", cache_dir=cache_dir

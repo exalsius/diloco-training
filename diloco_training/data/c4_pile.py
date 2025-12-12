@@ -13,6 +13,13 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 
+from diloco_training.utils.hf_download import (
+    DEFAULT_HF_MAX_RETRIES,
+    DEFAULT_HF_TIMEOUT,
+    create_download_config,
+    set_hf_timeout,
+)
+
 
 @dataclass
 class DatasetConfig:
@@ -29,6 +36,8 @@ class DatasetConfig:
     )
     use_fast_tokenizer: bool = True
     ignore_verifications: bool = True
+    download_timeout: int = DEFAULT_HF_TIMEOUT
+    max_retries: int = DEFAULT_HF_MAX_RETRIES
 
 
 class StreamingC4Dataset(IterableDataset):
@@ -40,6 +49,9 @@ class StreamingC4Dataset(IterableDataset):
         split="train",
         cache_dir: Optional[Path] = None,
     ):
+        # Create robust download configuration
+        download_config = create_download_config()
+
         if split == "validation":
             self.dataset = load_dataset(
                 dataset_name,
@@ -48,6 +60,7 @@ class StreamingC4Dataset(IterableDataset):
                 streaming=True,
                 trust_remote_code=True,
                 cache_dir=cache_dir,
+                download_config=download_config,
             )
         else:
             self.dataset = load_dataset(
@@ -57,6 +70,7 @@ class StreamingC4Dataset(IterableDataset):
                 streaming=True,
                 trust_remote_code=True,
                 cache_dir=cache_dir,
+                download_config=download_config,
             )
         self.rank = rank
         self.split = split
@@ -95,6 +109,9 @@ def create_tokenizer(
     Returns:
         Configured tokenizer
     """
+    # Set timeout for HuggingFace Hub downloads
+    set_hf_timeout(config.download_timeout)
+
     tokenizer = AutoTokenizer.from_pretrained(
         config.model_name, use_fast=config.use_fast_tokenizer, cache_dir=cache_dir
     )

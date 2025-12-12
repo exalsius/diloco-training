@@ -11,6 +11,8 @@ from typing import Any, Dict, Optional, Tuple
 
 from transformers import GPTNeoXConfig, GPTNeoXForCausalLM
 
+from diloco_training.utils.hf_download import set_hf_timeout
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL_NAME = "EleutherAI/gpt-neox-20b"
@@ -90,6 +92,8 @@ def get_gpt_neo_x(
 
     if model_name and not config_overrides:
         try:
+            # Set timeout for HuggingFace Hub downloads
+            set_hf_timeout()
             logger.info(f"Loading pretrained model: {model_name}")
             return None, GPTNeoXForCausalLM.from_pretrained(
                 model_name, cache_dir=cache_dir
