@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.2](https://github.com/exalsius/diloco-training/compare/v0.2.1...v0.2.2) (2025-12-15)
+
+
+### Bug Fixes
+
+* add retries and higher timeouts for huggingface downloads ([#64](https://github.com/exalsius/diloco-training/issues/64)) ([df36269](https://github.com/exalsius/diloco-training/commit/df362695f68b8acf9ea8eef4be726fefbd699ed8))
+* **wav2vec:** zero infinite losses and the associated gradients ([#66](https://github.com/exalsius/diloco-training/issues/66)) ([dd522d7](https://github.com/exalsius/diloco-training/commit/dd522d755825c54bd8f25aefdffc4af80617b36e))
+
 ## [0.2.1](https://github.com/exalsius/diloco-training/compare/v0.2.0...v0.2.1) (2025-12-01)
 
 
