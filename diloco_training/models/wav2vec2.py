@@ -48,6 +48,10 @@ def get_wav2vec2(
         pad_token_id=processor.tokenizer.pad_token_id,
         cache_dir=cache_dir,
     )
+
+    # zero infinite losses and the associated gradients
+    # see https://discuss.huggingface.co/t/wav2vec2-how-to-correct-for-nan-in-training-and-validation-loss/6089
+    model_class.config.ctc_zero_infinity = True
     return config, model_class
 
 
