@@ -3,6 +3,8 @@ import os
 
 import torch
 import torch.distributed as dist
+import gc
+
 from torch.amp import GradScaler, autocast
 from transformers import get_cosine_schedule_with_warmup
 
@@ -447,6 +449,11 @@ class DistributedTrainer:
                 if real_step % 10 == 0:
                     self.metrics_logger.log_system_metrics()
 
+                # Periodic CUDA cache clearing to prevent memory fragmentation
+                if real_step % 50 == 0 and self.device == "cuda":
+                    torch.cuda.empty_cache()
+                    gc.collect()
+
                 # Log throughput metrics
                 batch_size = batch[list(batch.keys())[0]].size(0)
                 if (
@@ -710,6 +717,11 @@ class DistributedTrainer:
                 # Log system metrics periodically
                 if real_step % 10 == 0:
                     self.metrics_logger.log_system_metrics()
+
+                # Periodic CUDA cache clearing to prevent memory fragmentation
+                if real_step % 50 == 0 and self.device == "cuda":
+                    torch.cuda.empty_cache()
+                    gc.collect()
 
                 # Log throughput metrics
                 batch_size = batch[list(batch.keys())[0]].size(0)

@@ -1,3 +1,4 @@
+import logging
 from itertools import islice
 from pathlib import Path
 from typing import Optional
@@ -8,6 +9,12 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import Wav2Vec2Processor
 
 from diloco_training.utils.hf_download import create_download_config, set_hf_timeout
+
+logger = logging.getLogger(__name__)
+
+# Maximum audio length in samples (16kHz * 30 seconds = 480000 samples)
+# This prevents OOM from very long audio sequences
+MAX_AUDIO_LENGTH = 480000
 
 
 class StreamingLibriSpeechDataset(IterableDataset):
@@ -73,11 +80,18 @@ class StreamingLibriSpeechDataset(IterableDataset):
             batch: A single data sample
 
         Returns:
-            Preprocessed sample
+            Preprocessed sample, or None if audio is too long
         """
         audio = batch["audio"]
+        audio_array = audio["array"]
+        
+        # Truncate audio if it exceeds max length to prevent OOM
+        if len(audio_array) > MAX_AUDIO_LENGTH:
+            logger.debug(f"Truncating audio from {len(audio_array)} to {MAX_AUDIO_LENGTH} samples")
+            audio_array = audio_array[:MAX_AUDIO_LENGTH]
+        
         batch["input_values"] = self.processor(
-            audio["array"], sampling_rate=audio["sampling_rate"]
+            audio_array, sampling_rate=audio["sampling_rate"]
         ).input_values[0]
         norm_text = self.normalize_text(batch["text"])
         batch["labels"] = self.processor.tokenizer(norm_text).input_ids

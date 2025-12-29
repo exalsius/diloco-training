@@ -16,8 +16,10 @@ export MASTER_ADDR="10.42.0.52"
 export MASTER_PORT="29500"
 # Torchrun command
 torchrun \
-  --nnodes=1 \
+  --nnodes=2 \
   --nproc_per_node=1 \
   --node_rank=0 \
+  --rdzv_backend=c10d \
+  --rdzv_endpoint=10.244.0.246:29500 \
   diloco_training/training/start_training.py \
   --config config.yaml
