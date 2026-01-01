@@ -84,12 +84,14 @@ class StreamingLibriSpeechDataset(IterableDataset):
         """
         audio = batch["audio"]
         audio_array = audio["array"]
-        
+
         # Truncate audio if it exceeds max length to prevent OOM
         if len(audio_array) > MAX_AUDIO_LENGTH:
-            logger.debug(f"Truncating audio from {len(audio_array)} to {MAX_AUDIO_LENGTH} samples")
+            logger.debug(
+                f"Truncating audio from {len(audio_array)} to {MAX_AUDIO_LENGTH} samples"
+            )
             audio_array = audio_array[:MAX_AUDIO_LENGTH]
-        
+
         batch["input_values"] = self.processor(
             audio_array, sampling_rate=audio["sampling_rate"]
         ).input_values[0]

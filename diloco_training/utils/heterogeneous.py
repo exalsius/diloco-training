@@ -22,7 +22,6 @@ def profile_gpu(
     avg_time = None
 
     while device_batch_size <= config.max_batch_size:
-        print(config.max_batch_size)
         try:
             # Create a copy of config with profiling parameters
             profiling_config = config.model_copy(

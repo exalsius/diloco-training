@@ -64,8 +64,16 @@ class DistributedTrainer:
         self.warmup_steps = config.warmup_steps
 
         # Calculate sum_local_steps for distributed training
+        # In heterogeneous setup, each worker may have different local_steps
+        # so we need to gather and sum all local_steps across workers
         self.sum_local_steps = self.local_steps * self.world_size
-
+        if self.heterogeneous is False:
+            local_steps_tensor = torch.tensor([self.local_steps], dtype=torch.float32)
+            if self.device == "cuda":
+                local_steps_tensor = local_steps_tensor.cuda()
+            dist.all_reduce(local_steps_tensor, op=dist.ReduceOp.SUM)
+            self.sum_local_steps = int(local_steps_tensor.item())
+        print("Sum local steps across all workers:", self.sum_local_steps)
         # Initialize model
         model_class = MODEL_REGISTRY.get(config.model)
         assert model_class, f"Model {config.model} not found"

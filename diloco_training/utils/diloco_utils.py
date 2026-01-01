@@ -210,32 +210,36 @@ def prepare_batch(batch, device="cuda"):
 def forward_and_compute_loss(model, batch, gradient_accumulation_steps):
     outputs = model(**batch)
     loss = outputs.loss / gradient_accumulation_steps
-    
+
     # Check for NaN/Inf loss and log warning
     if torch.isnan(loss) or torch.isinf(loss):
-        logger.warning(f"Detected NaN/Inf loss: {loss.item()}. This batch will be skipped.")
+        logger.warning(
+            f"Detected NaN/Inf loss: {loss.item()}. This batch will be skipped."
+        )
         # Return zero loss to skip this batch's gradient contribution
         return torch.zeros_like(loss, requires_grad=True)
-    
+
     return loss
 
 
 def update_inner_optimizer(inner_optimizer, scheduler, model, scaler):
     scaler.unscale_(optimizer=inner_optimizer)
-    
+
     # Check for NaN gradients before clipping
     has_nan_grad = False
     for param in model.parameters():
-        if param.grad is not None and (torch.isnan(param.grad).any() or torch.isinf(param.grad).any()):
+        if param.grad is not None and (
+            torch.isnan(param.grad).any() or torch.isinf(param.grad).any()
+        ):
             has_nan_grad = True
             break
-    
+
     if has_nan_grad:
         logger.warning("Detected NaN/Inf gradients. Skipping optimizer step.")
         inner_optimizer.zero_grad()
         scaler.update()  # Still need to update scaler state
         return
-    
+
     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)  # gradient clipping
     scaler.step(optimizer=inner_optimizer)
     scaler.update()
