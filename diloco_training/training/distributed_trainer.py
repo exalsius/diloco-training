@@ -62,8 +62,9 @@ class DistributedTrainer:
         self.warmup_steps = config.warmup_steps
 
         # Calculate sum_local_steps for distributed training
+        # In heterogeneous setup, each worker may have different local_steps
+        # so we need to gather and sum all local_steps across workers
         self.sum_local_steps = self.local_steps * self.world_size
-
         # Initialize model
         model_class = MODEL_REGISTRY.get(config.model)
         assert model_class, f"Model {config.model} not found"

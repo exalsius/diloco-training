@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Optional
 
-from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+from transformers import Wav2Vec2Config, Wav2Vec2ForCTC, Wav2Vec2Processor
 
 from diloco_training.data.librispeech import get_librispeech
 from diloco_training.utils.hf_download import set_hf_timeout
@@ -30,29 +30,24 @@ def get_wav2vec2(
     # Set timeout for HuggingFace Hub downloads
     set_hf_timeout()
 
-    # Load model config (same as pretrained one)
+    # Load processor and config from pretrained model
     processor = Wav2Vec2Processor.from_pretrained(
         "facebook/wav2vec2-base", cache_dir=cache_dir
     )
-    config = Wav2Vec2ForCTC.from_pretrained(
+    config = Wav2Vec2Config.from_pretrained(
         "facebook/wav2vec2-base",
-        ctc_loss_reduction="mean",
-        pad_token_id=processor.tokenizer.pad_token_id,
-        cache_dir=cache_dir,
-    ).config
-
-    # Reset model with random weights
-    model_class = Wav2Vec2ForCTC.from_pretrained(
-        "facebook/wav2vec2-base",
-        ctc_loss_reduction="mean",
-        pad_token_id=processor.tokenizer.pad_token_id,
         cache_dir=cache_dir,
     )
 
-    # zero infinite losses and the associated gradients
-    # see https://discuss.huggingface.co/t/wav2vec2-how-to-correct-for-nan-in-training-and-validation-loss/6089
-    model_class.config.ctc_zero_infinity = True
-    return config, model_class
+    # Set CTC-specific config
+    config.ctc_loss_reduction = "mean"
+    config.pad_token_id = processor.tokenizer.pad_token_id
+    config.ctc_zero_infinity = True
+
+    # Create model from config with random weights (training from scratch)
+    model = Wav2Vec2ForCTC(config)
+
+    return config, model
 
 
 if __name__ == "__main__":

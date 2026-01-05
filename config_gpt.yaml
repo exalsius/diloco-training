@@ -1,24 +1,23 @@
 # Model and Dataset Configuration
-model: "wav2vec2"
-dataset: "librispeech"
+model: "gpt-neo-x"
+dataset: "c4"
 
 # Training Hyperparameters
 local_steps: 128
-lr: 3e-4
-outer_lr: 0.8
+lr: 4e-4
+outer_lr: 0.7
 warmup_steps: 500
 total_steps: 16000
 
 # Batch Size Configuration
 per_device_train_batch_size: 64
-batch_size: 128
-max_batch_size: 128
+batch_size: 512
 
 # Optimization Settings
 optim_method: "sgd"
 
 # Checkpoint Configuration
-checkpoint_path: "wav2vec2_librispeech_checkpoint.pth"
+checkpoint_path: "gpt_neo_x_c4_checkpoint.pth"
 checkpoint_interval: 5
 
 # Device Configuration
@@ -31,7 +30,7 @@ pgroup_backend: "gloo"  # Options: nccl, gloo, ucc (auto-selects if not specifie
 # WandB Configuration
 wandb_project_name: "test"
 wandb_group: "test_new_metrics"
-wandb_run_id: "wav2vec2_librispeech4"
+wandb_run_id: "gpt_neo_x_c44"
 
 # Advanced Features
 heterogeneous: true
