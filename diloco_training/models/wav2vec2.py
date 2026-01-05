@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Optional
 
-from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor, Wav2Vec2Config
+from transformers import Wav2Vec2Config, Wav2Vec2ForCTC, Wav2Vec2Processor
 
 from diloco_training.data.librispeech import get_librispeech
 from diloco_training.utils.hf_download import set_hf_timeout

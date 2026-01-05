@@ -3,8 +3,6 @@ import os
 
 import torch
 import torch.distributed as dist
-import gc
-
 from torch.amp import GradScaler, autocast
 from transformers import get_cosine_schedule_with_warmup
 
