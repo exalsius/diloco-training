@@ -67,13 +67,6 @@ class DistributedTrainer:
         # In heterogeneous setup, each worker may have different local_steps
         # so we need to gather and sum all local_steps across workers
         self.sum_local_steps = self.local_steps * self.world_size
-        if self.heterogeneous is False:
-            local_steps_tensor = torch.tensor([self.local_steps], dtype=torch.float32)
-            if self.device == "cuda":
-                local_steps_tensor = local_steps_tensor.cuda()
-            dist.all_reduce(local_steps_tensor, op=dist.ReduceOp.SUM)
-            self.sum_local_steps = int(local_steps_tensor.item())
-        print("Sum local steps across all workers:", self.sum_local_steps)
         # Initialize model
         model_class = MODEL_REGISTRY.get(config.model)
         assert model_class, f"Model {config.model} not found"
@@ -457,11 +450,6 @@ class DistributedTrainer:
                 if real_step % 10 == 0:
                     self.metrics_logger.log_system_metrics()
 
-                # Periodic CUDA cache clearing to prevent memory fragmentation
-                if real_step % 50 == 0 and self.device == "cuda":
-                    torch.cuda.empty_cache()
-                    gc.collect()
-
                 # Log throughput metrics
                 batch_size = batch[list(batch.keys())[0]].size(0)
                 if (
@@ -725,11 +713,6 @@ class DistributedTrainer:
                 # Log system metrics periodically
                 if real_step % 10 == 0:
                     self.metrics_logger.log_system_metrics()
-
-                # Periodic CUDA cache clearing to prevent memory fragmentation
-                if real_step % 50 == 0 and self.device == "cuda":
-                    torch.cuda.empty_cache()
-                    gc.collect()
 
                 # Log throughput metrics
                 batch_size = batch[list(batch.keys())[0]].size(0)
