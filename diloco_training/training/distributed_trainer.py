@@ -181,7 +181,13 @@ class DistributedTrainer:
         model = model.to(self.device)
         if not self.heterogeneous:
             for param in model.parameters():
-                dist.broadcast(param.data, src=0)
+                if self.pgroup_backend == "gloo":
+                    cpu_params = param.detach().cpu()
+                    dist.broadcast(cpu_params, src=0)
+                    param.data = cpu_params.to(param.device)
+                else:
+                    dist.broadcast(param.data, src=0)
+
         # torch.compile (must be before DDP wrapping)
         if getattr(self.config, "compile_model", False):
             try:
