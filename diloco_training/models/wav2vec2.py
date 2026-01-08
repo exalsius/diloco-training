@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Optional
 
+import torch
 from transformers import Wav2Vec2Config, Wav2Vec2ForCTC, Wav2Vec2Processor
 
 from diloco_training.data.librispeech import get_librispeech
@@ -27,6 +28,10 @@ def get_wav2vec2(
     Returns:
         Configured Wav2Vec2Model instance
     """
+    # Disable benchmarking in CUDNN settings and enable deterministic training
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+
     # Set timeout for HuggingFace Hub downloads
     set_hf_timeout()
 
