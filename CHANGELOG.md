@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.2](https://github.com/exalsius/diloco-training/compare/v0.2.1...v0.2.2) (2026-01-08)
+
+
+### Bug Fixes
+
+* add retries and higher timeouts for huggingface downloads ([#64](https://github.com/exalsius/diloco-training/issues/64)) ([df36269](https://github.com/exalsius/diloco-training/commit/df362695f68b8acf9ea8eef4be726fefbd699ed8))
+* detach params to CPU during initial broadcast ([#68](https://github.com/exalsius/diloco-training/issues/68)) ([e548f8f](https://github.com/exalsius/diloco-training/commit/e548f8f42c1bcb61fba15b075ab36ba0b51b368f))
+* disable cudnn benchmarking for wav2vec2 trainings ([#69](https://github.com/exalsius/diloco-training/issues/69)) ([1ab7e9e](https://github.com/exalsius/diloco-training/commit/1ab7e9e257590ee8c0a4caf866fbc3b8b907c026))
+* **wav2vec:** truncate audio samples during and clip NaN gradients ([#67](https://github.com/exalsius/diloco-training/issues/67)) ([cf9dfce](https://github.com/exalsius/diloco-training/commit/cf9dfce3b03adaccac69049805bdfc5286676e48))
+* **wav2vec:** zero infinite losses and the associated gradients ([#66](https://github.com/exalsius/diloco-training/issues/66)) ([dd522d7](https://github.com/exalsius/diloco-training/commit/dd522d755825c54bd8f25aefdffc4af80617b36e))
+
 ## [0.2.1](https://github.com/exalsius/diloco-training/compare/v0.2.0...v0.2.1) (2025-12-01)
 
 
