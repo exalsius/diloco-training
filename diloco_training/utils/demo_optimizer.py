@@ -99,18 +99,42 @@ class DeMo(torch.optim.SGD):
                     p.grad = _reshape_back(p.grad, original_shape)
 
     def _demo_all_gather(self, sparse_idx, sparse_val):
+        from diloco_training.utils.exalsius_logger import get_logger
+
+        logger = get_logger("diloco_training.demo_optimizer")
+
         world_size = (
             dist.get_world_size()
             if self.process_group is None
             else self.process_group.size()
         )
+
+        # Diagnostic logging
+        rank = dist.get_rank() if dist.is_initialized() else -1
+        backend = dist.get_backend() if dist.is_initialized() else "not_initialized"
+        logger.debug(
+            f"DeMo all_gather: rank={rank}, world_size={world_size}, backend={backend}, "
+            f"process_group={'None' if self.process_group is None else 'set'}, "
+            f"sparse_idx: shape={sparse_idx.shape}, dtype={sparse_idx.dtype}, device={sparse_idx.device}, "
+            f"sparse_val: shape={sparse_val.shape}, dtype={sparse_val.dtype}, device={sparse_val.device}"
+        )
+
+        # For gloo backend with CUDA tensors, we need to stage through CPU
+        # Gloo is CPU-based and can hang on CUDA tensors, especially small ones
+        original_device = sparse_idx.device
+        use_cpu_staging = backend == "gloo" and sparse_idx.is_cuda
+
+        if use_cpu_staging:
+            sparse_idx = sparse_idx.cpu()
+            sparse_val = sparse_val.cpu()
+
         if self.quantization is True:
             # Quantize sparse_val for communication
             sparse_val_q, qmin, qmax = quantize_tensor(sparse_val)
             qmin_tensor = torch.tensor([qmin], device=sparse_val.device)
             qmax_tensor = torch.tensor([qmax], device=sparse_val.device)
 
-            # Prepare buffers for gathering
+            # Prepare buffers for gathering (on same device as input tensors)
             sparse_idx_list = [torch.zeros_like(sparse_idx) for _ in range(world_size)]
             sparse_val_list = [
                 torch.zeros_like(sparse_val_q) for _ in range(world_size)
@@ -123,23 +147,18 @@ class DeMo(torch.optim.SGD):
             ]
 
             # Gather quantized values and quantization params
-            sparse_idx_handle = dist.all_gather(
-                sparse_idx_list, sparse_idx, group=self.process_group, async_op=True
+            dist.all_gather(
+                sparse_idx_list, sparse_idx, group=self.process_group, async_op=False
             )
-            sparse_val_handle = dist.all_gather(
-                sparse_val_list, sparse_val_q, group=self.process_group, async_op=True
+            dist.all_gather(
+                sparse_val_list, sparse_val_q, group=self.process_group, async_op=False
             )
-            qmin_handle = dist.all_gather(
-                qmin_list, qmin_tensor, group=self.process_group, async_op=True
+            dist.all_gather(
+                qmin_list, qmin_tensor, group=self.process_group, async_op=False
             )
-            qmax_handle = dist.all_gather(
-                qmax_list, qmax_tensor, group=self.process_group, async_op=True
+            dist.all_gather(
+                qmax_list, qmax_tensor, group=self.process_group, async_op=False
             )
-
-            sparse_idx_handle.wait()
-            sparse_val_handle.wait()
-            qmin_handle.wait()
-            qmax_handle.wait()
 
             # Dequantize gathered values
             sparse_val_list = [
@@ -148,32 +167,63 @@ class DeMo(torch.optim.SGD):
                 )
                 for i in range(world_size)
             ]
+
+            # Move results back to original device if we used CPU staging
+            if use_cpu_staging:
+                sparse_idx_list = [t.to(original_device) for t in sparse_idx_list]
+                sparse_val_list = [t.to(original_device) for t in sparse_val_list]
+
             return sparse_idx_list, sparse_val_list
         else:
-            # Gather all the idx and vals
+            # Prepare buffers for gathering (on same device as input tensors)
             sparse_idx_list = [torch.zeros_like(sparse_idx) for wi in range(world_size)]
             sparse_val_list = [torch.zeros_like(sparse_val) for wi in range(world_size)]
 
-            sparse_idx_handle = dist.all_gather(
-                sparse_idx_list, sparse_idx, group=self.process_group, async_op=True
+            dist.all_gather(
+                sparse_idx_list, sparse_idx, group=self.process_group, async_op=False
             )
-            sparse_val_handle = dist.all_gather(
-                sparse_val_list, sparse_val, group=self.process_group, async_op=True
+            dist.all_gather(
+                sparse_val_list, sparse_val, group=self.process_group, async_op=False
             )
 
-            sparse_idx_handle.wait()
-            sparse_val_handle.wait()
+            # Move results back to original device if we used CPU staging
+            if use_cpu_staging:
+                sparse_idx_list = [t.to(original_device) for t in sparse_idx_list]
+                sparse_val_list = [t.to(original_device) for t in sparse_val_list]
 
             return sparse_idx_list, sparse_val_list
 
     @torch.no_grad()
     def step(self, closure: Callable | None = None):
+        from diloco_training.utils.exalsius_logger import get_logger
+
+        logger = get_logger("diloco_training.demo_optimizer")
+
+        logger.debug("DeMo optimizer step started")
         self.nbytes = 0
+
+        # Count total parameters
+        total_params = sum(
+            1 for group in self.param_groups for p in group["params"] if p.requires_grad
+        )
+        logger.debug(f"DeMo: Processing {total_params} parameters")
+
+        param_idx = 0
         for group in self.param_groups:
             lr = group["lr"]
             for p in group["params"]:
                 if not p.requires_grad:
                     continue
+
+                param_idx += 1
+                param_shape = p.data.shape
+                param_size_mb = p.data.numel() * p.data.element_size() / (1024 * 1024)
+
+                logger.debug(
+                    f"DeMo: Processing parameter {param_idx}/{total_params} "
+                    f"(shape={param_shape}, size={param_size_mb:.2f}MB)"
+                )
+
                 state = self._state_parameter(p)
 
                 # Reshape parameter to 2D if necessary
@@ -207,9 +257,15 @@ class DeMo(torch.optim.SGD):
                 # Remove transmitted from delta
                 state["delta"].sub_(transmit_grad)
 
-                # All-gather
+                # All-gather - CRITICAL SECTION
+                logger.debug(
+                    f"DeMo: Starting all_gather for parameter {param_idx}/{total_params}"
+                )
                 sparse_idx_gather, sparse_val_gather = self._demo_all_gather(
                     sparse_idx, sparse_val
+                )
+                logger.debug(
+                    f"DeMo: Completed all_gather for parameter {param_idx}/{total_params}"
                 )
 
                 # Log I/O data size
@@ -231,8 +287,11 @@ class DeMo(torch.optim.SGD):
                 # Sign-SGD
                 # p.grad.sign_()
 
+        logger.debug(f"DeMo: All {total_params} parameters processed, calling SGD step")
         # SGD step
-        return super().step(closure)
+        result = super().step(closure)
+        logger.debug("DeMo optimizer step completed")
+        return result
 
 
 class TransformDCT:
