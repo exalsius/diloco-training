@@ -354,6 +354,30 @@ def update_outer_optimizer(
     else:
         logger.info("Phase 2/3: Skipping quantization setup")
 
+    # Synchronize all workers before DeMo optimizer step to prevent deadlock
+    # DeMo uses all_gather operations that require all workers to be aligned
+    if optim_method == "demo" and dist.is_initialized():
+        # Synchronize GPU operations first (supports multi-GPU setups)
+        if torch.cuda.is_available():
+            # Synchronize all CUDA devices this process is using
+            device_count = torch.cuda.device_count()
+            if device_count > 0:
+                # In multi-GPU setups, sync all devices
+                for device_id in range(device_count):
+                    torch.cuda.synchronize(device=device_id)
+                logger.debug(f"Synchronized {device_count} CUDA device(s)")
+            else:
+                # Fallback: sync current device only
+                torch.cuda.synchronize()
+
+        barrier_start = time.time()
+        logger.info("Synchronizing all workers before DeMo optimizer step...")
+        dist.barrier()
+        barrier_time = time.time() - barrier_start
+        logger.info(
+            f"All workers synchronized (waited {barrier_time:.2f}s), proceeding with optimizer step"
+        )
+
     # Phase 3: Running outer optimizer step
     logger.info("Phase 3/3: Running outer optimizer step...")
     optimizer_step_start = time.time()
