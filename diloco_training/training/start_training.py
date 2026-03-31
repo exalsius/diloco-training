@@ -176,6 +176,18 @@ def load_config_from_args() -> TrainingConfig:
         "--quantization", action="store_true", help="Enable quantization."
     )
     parser.add_argument(
+        "--compression_method",
+        type=str,
+        default="none",
+        choices=["none", "int8", "lattice"],
+        help="Pseudo-gradient compression method (none, int8, lattice).",
+    )
+    parser.add_argument(
+        "--compression_error_feedback",
+        action="store_true",
+        help="Accumulate compression residual error across outer steps.",
+    )
+    parser.add_argument(
         "--checkpoint_path", type=str, default="checkpoint.pth", help="Checkpoint path."
     )
     parser.add_argument(

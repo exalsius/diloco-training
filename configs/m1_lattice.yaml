@@ -1,0 +1,36 @@
+# M1 Max — DiLoCo with lattice compression (E8P12, ~8x)
+model: "gpt-neo"
+dataset: "c4"
+
+local_steps: 50
+lr: 4e-4
+outer_lr: 0.7
+warmup_steps: 100
+total_steps: 2000
+
+per_device_train_batch_size: 8
+batch_size: 16
+
+optim_method: "sgd"
+
+checkpoint_path: "checkpoints/m1_lattice.pth"
+checkpoint_interval: 200
+
+device: "cpu"
+pgroup_backend: "gloo"
+
+wandb_project_name: "diloco-lattice-compression"
+wandb_group: "m1-lattice"
+experiment_description: "DiLoCo with E8P12 lattice compression (~8x) on M1 Max"
+experiment_tags:
+  - "lattice"
+  - "gpt-neo"
+  - "c4"
+  - "m1"
+  - "compression"
+seed: 42
+wandb_logging: true
+
+compression_method: "lattice"
+heterogeneous: false
+hf_upload: false

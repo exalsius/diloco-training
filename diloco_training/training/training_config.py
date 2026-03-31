@@ -40,7 +40,16 @@ class TrainingConfig(BaseSettings):
     optim_method: Literal["demo", "sgd", "ddp"] = Field(
         default="sgd", description="Optimizer method"
     )
-    quantization: bool = Field(default=False, description="Enable quantization")
+    quantization: bool = Field(default=False, description="Enable quantization (legacy, prefer compression_method)")
+    compression_method: Literal["none", "int8", "lattice"] = Field(
+        default="none",
+        description="Pseudo-gradient compression method for outer sync: "
+        "none=fp32, int8=scalar 8-bit, lattice=E8P12 lattice VQ (~8x compression)",
+    )
+    compression_error_feedback: bool = Field(
+        default=False,
+        description="Accumulate compression residual error across outer steps (improves convergence)",
+    )
     async_communication: bool = Field(
         default=False, description="Enable asynchronous communication"
     )

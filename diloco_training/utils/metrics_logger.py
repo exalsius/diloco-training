@@ -298,6 +298,28 @@ class MetricsLogger:
             logger.info("Skipping WandB logging for outer step metrics")
             logger.info(f"Outer step metrics: {metrics}")
 
+    def log_compression_metrics(
+        self,
+        compression_method: str,
+        compression_ratio: float,
+        cosine_similarity: float,
+        error_feedback: bool,
+        compression_time: float,
+    ):
+        """Log pseudo-gradient compression quality metrics."""
+        metrics = {
+            "compression/method": compression_method,
+            "compression/ratio": compression_ratio,
+            "compression/cosine_similarity": cosine_similarity,
+            "compression/error_feedback": error_feedback,
+            "compression/time_seconds": compression_time,
+        }
+
+        if self.wandb_logging:
+            wandb.log(metrics)
+        else:
+            logger.info(f"Compression metrics: {metrics}")
+
     def log_timing_summary(self, step: int):
         """Log timing summary for various operations"""
         if not self.timers:

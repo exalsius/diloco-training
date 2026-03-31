@@ -15,3 +15,8 @@ wandb/
 
 /testdata
 /wandb
+# Experiment outputs
+results/
+results_test/
+checkpoints/
+*.pth

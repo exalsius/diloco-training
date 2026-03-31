@@ -11,9 +11,22 @@ from tqdm import tqdm
 
 import wandb
 from diloco_training.utils.exalsius_logger import get_logger
-from diloco_training.utils.quantization import distributed_reduce_quantized
+from diloco_training.utils.quantization import (
+    distributed_reduce_quantized,
+    distributed_reduce_lattice,
+)
+from diloco_training.utils.lattice_compression import compress_tensor, decompress_tensor
 
 logger = get_logger("diloco_training")
+
+# Error feedback buffers: keyed by (worker_rank, param_index) → residual tensor.
+# Persists across outer steps to accumulate compression residuals.
+_error_feedback_buffers: dict[tuple[int, int], torch.Tensor] = {}
+
+
+def reset_error_feedback():
+    """Clear all error feedback buffers (e.g., at start of training)."""
+    _error_feedback_buffers.clear()
 
 
 def ddp_setup(
@@ -142,20 +155,12 @@ def evaluate_model(eval_dataloader, model, global_rank, local_rank, device):
         eval_start_time = time.time()
         model.eval()
 
-        # Check if this is a GAN model
-        is_gan = hasattr(model, "generator") and hasattr(model, "discriminator")
-
         for step, batch_eval in enumerate(eval_dataloader):
             for key in batch_eval.keys():
                 batch_eval[key] = batch_eval[key].to(device)
             with torch.no_grad():
                 with autocast(device_type=device, dtype=torch.bfloat16):
-                    if is_gan:
-                        # For GAN, evaluate discriminator loss
-                        model.set_training_mode("discriminator")
-                        outputs = model(batch_eval["image"], batch_eval["label"])
-                    else:
-                        outputs = model(**batch_eval)
+                    outputs = model(**batch_eval)
                     loss_eval += outputs.loss
             step_eval += 1
             if step > 1000:
@@ -176,27 +181,18 @@ def evaluate_model(eval_dataloader, model, global_rank, local_rank, device):
             ),
         }
 
-        if is_gan:
-            eval_metrics.update(
-                {
-                    "loss": loss_eval,
-                    "d_loss": loss_eval,
-                }
-            )
-            return {"loss": loss_eval, "d_loss": loss_eval, **eval_metrics}
-        else:
-            perplexity = torch.exp(loss_eval.detach().clone()).item()
-            eval_metrics.update(
-                {
-                    "loss": loss_eval,
-                    "perplexity": perplexity,
-                }
-            )
-            return {
+        perplexity = torch.exp(loss_eval.detach().clone()).item()
+        eval_metrics.update(
+            {
                 "loss": loss_eval,
                 "perplexity": perplexity,
-                **eval_metrics,
             }
+        )
+        return {
+            "loss": loss_eval,
+            "perplexity": perplexity,
+            **eval_metrics,
+        }
     else:
         return None
 
@@ -256,6 +252,8 @@ def update_outer_optimizer(
     local_steps,
     backend="gloo",
     quantization=False,
+    compression_method="none",
+    compression_error_feedback=False,
     metrics_logger=None,
     sum_local_steps=10,
     async_communication=False,
@@ -264,6 +262,8 @@ def update_outer_optimizer(
     reduce_start_time = time.time()
 
     bytes_sent = 0
+    compression_cos_sims = []
+    compression_time_total = 0.0
 
     # Time the wait for reduce to start (if there's synchronization overhead)
     reduce_processing_start = time.time()
@@ -281,7 +281,7 @@ def update_outer_optimizer(
     )
     grad_compute_start = time.time()
 
-    for param_offloaded, param in tqdm(
+    for param_idx, (param_offloaded, param) in enumerate(tqdm(
         zip(params_offloaded, main_param),
         total=total_params,
         desc="Syncing parameters",
@@ -293,7 +293,7 @@ def update_outer_optimizer(
         file=sys.stdout,
         position=0,
         leave=True,
-    ):
+    )):
         param_offloaded_on_device = param_offloaded.data.to(param.device)
         param.grad = (param_offloaded_on_device - param.data) * (
             local_steps / (sum_local_steps / world_size)
@@ -303,18 +303,49 @@ def update_outer_optimizer(
         if optim_method != "demo":
             nbytes = param.grad.nbytes
 
-            if quantization is True:
-                # Assuming 8x compression from quantization
-                # TODO: This needs to be done in distributed_reduce_quantized
-                nbytes = nbytes // 8
+            # Resolve effective compression: new compression_method takes priority
+            effective_compression = compression_method
+            if effective_compression == "none" and quantization is True:
+                effective_compression = "int8"
+
+            if effective_compression == "lattice":
+                nbytes = nbytes // 8  # ~8x compression
+                compress_start = time.time()
+
+                # Error feedback: add accumulated residual before compression
+                if compression_error_feedback:
+                    rank = dist.get_rank() if dist.is_initialized() else 0
+                    ef_key = (rank, param_idx)
+                    if ef_key in _error_feedback_buffers:
+                        param.grad.add_(_error_feedback_buffers[ef_key].to(param.grad.device))
+                    # Compress locally to compute residual
+                    pre_compress = param.grad.clone()
+                    compressed_local = compress_tensor(param.grad)
+                    reconstructed_local = decompress_tensor(compressed_local, device=param.grad.device)
+                    _error_feedback_buffers[ef_key] = (pre_compress - reconstructed_local).cpu()
+
+                # Track compression quality (sample every 10th param to avoid overhead)
+                if param_idx % 10 == 0 and param.grad.numel() >= 8:
+                    orig_grad = param.grad.clone()
+                    c = compress_tensor(param.grad)
+                    r = decompress_tensor(c, device=param.grad.device)
+                    cos = torch.nn.functional.cosine_similarity(
+                        orig_grad.flatten().unsqueeze(0), r.flatten().unsqueeze(0)
+                    ).item()
+                    compression_cos_sims.append(cos)
+
+                param.grad = distributed_reduce_lattice(param.grad, op=op)
+                if backend == "gloo":
+                    param.grad.div_(world_size)
+                compression_time_total += time.time() - compress_start
+
+            elif effective_compression == "int8":
+                nbytes = nbytes // 4  # ~4x compression
                 param.grad = distributed_reduce_quantized(param.grad, op=op)
                 if backend == "gloo":
-                    # Manual averaging after SUM since dist.ReduceOp.AVG is not supported with gloo
-                    # and we use dist.ReduceOp.SUM instead
                     param.grad.div_(world_size)
 
             else:
-
                 if backend == "gloo":
                     logger.debug(
                         f"Using gloo backend with CPU offload - gradient shape: {param.grad.shape}, "
@@ -383,5 +414,18 @@ def update_outer_optimizer(
     if metrics_logger:
         metrics_logger.log_reduce_processing_time(processing_time)
         metrics_logger.log_communication_metrics(bytes_sent, "outer_sync")
+
+        # Log compression quality metrics
+        if compression_cos_sims:
+            avg_cos_sim = sum(compression_cos_sims) / len(compression_cos_sims)
+            effective = compression_method if compression_method != "none" else ("int8" if quantization else "none")
+            ratio = 8.0 if effective == "lattice" else (4.0 if effective == "int8" else 1.0)
+            metrics_logger.log_compression_metrics(
+                compression_method=effective,
+                compression_ratio=ratio,
+                cosine_similarity=avg_cos_sim,
+                error_feedback=compression_error_feedback,
+                compression_time=compression_time_total,
+            )
 
     return bytes_sent

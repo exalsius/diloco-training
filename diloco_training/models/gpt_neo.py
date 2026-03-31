@@ -30,6 +30,17 @@ TINY_GPT_NEO_CONFIG: Dict[str, Any] = {
     "attention_types": [[["global", "local"], 1]],
 }
 
+# ~2M params: big enough for meaningful compression, fast enough for CPU experiments
+SMALL_GPT_NEO_CONFIG: Dict[str, Any] = {
+    "vocab_size": 4096,
+    "hidden_size": 128,
+    "intermediate_size": 512,
+    "max_position_embeddings": 256,
+    "num_layers": 4,
+    "num_heads": 4,
+    "attention_types": [[["global", "local"], 2]],
+}
+
 
 def get_tiny_gpt_neo(
     cache_dir: Optional[Path] = None,
@@ -43,6 +54,18 @@ def get_tiny_gpt_neo(
         cache_dir: Directory for caching models (not used for models created from config)
     """
     config = GPTNeoConfig(**TINY_GPT_NEO_CONFIG)
+    return config, GPTNeoForCausalLM(config)
+
+
+def get_small_gpt_neo(
+    cache_dir: Optional[Path] = None,
+) -> Tuple[GPTNeoConfig, GPTNeoForCausalLM]:
+    """Returns a small GPT-Neo model for M1/CPU experiments.
+
+    ~2M params — large enough for meaningful lattice compression
+    experiments but fast enough for CPU-only training.
+    """
+    config = GPTNeoConfig(**SMALL_GPT_NEO_CONFIG)
     return config, GPTNeoForCausalLM(config)
 
 
